@@ -1,0 +1,4 @@
+<pop-server-host-name> 110 <your-login-name> <your-password>
+<smtp-server-host-name> 25 <your-login-name> <your-password>
+
+

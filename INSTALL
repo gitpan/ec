@@ -1,0 +1,68 @@
+EC Email Client -- Installation
+
+This is beta software.  Please send comments to the author, 
+rkiesling@mainmatter.com
+
+NOTE: As of Version 0.90, EC stores some of its library
+modules in the directory ~/.ec/EC/.  If you edit the path
+names in the main program file, you will also need to edit
+them in the library modules, especially ~/.ec/EC/Config.pm.
+
+SYSTEM REQUIREMENTS
+
+You will need, in addition to Perl:
+
+1. A recent version of Perl/Tk.
+
+INSTALLING AND CONFIGURING
+
+1.  Unpack the tar archive, preferably in your home directory 
+    (which you've already done it you're reading this).
+
+    tar zxvf ec-<version>.tar.gz
+
+2.  Edit the file ~/.ec/.servers (it's a hidden file in a hidden
+    directory) so it contains the names of your ISP's POP and SMTP 
+    servers, and your user name and password for each.  Refer to 
+    the help documentation on EC's help menu for details.  
+
+    If you're really paranoid about saving passwords in a file, 
+    enter a hyphen ('-') in the space for the password, and ec will 
+    prompt you for the password each time it tries to connect to 
+    that server.
+
+3.  Edit the ~/.ec/.ecconfig file with the program options of 
+    your choice.  
+
+4.  On Solaris systems, you may need to change the value of 
+    $SOCK_STREAM line 39 to '2' to communicate directly with
+    SMTP and POP3 servers.  
+
+5.  EC requires, at the very least, a top-level mail subdirectory, 
+    and two sub-sub-directories, one for incoming mail and another 
+    for trash.  Create the directories defined in the default 
+    configuration with the following commands:
+
+    cd 
+    mkdir Mail
+    mkdir Mail/incoming
+    mkdir Mail/trash
+
+PRINTING THE DOCUMENTATION
+
+It is possible produce this documentation in various formats
+using Perl's POD formatting utilities:
+
+  pod2html <ec >doc.html
+  pod2latex <ec >doc.tex
+  pod2man <ec >doc.man
+  pod2text <ec >doc.txt
+  pod2usage <ec >doc.msg
+
+Refer to your system's manual pages for instructions of how
+to use these utilities.
+
+That's it!  If EC doesn't work for some reason, please let the 
+author know.  Please send bug reports, suggestions, and other
+feedback to rkiesling@mainmatter.com.
+
