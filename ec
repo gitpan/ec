@@ -1,5 +1,5 @@
 #!/usr/local/bin/perl
-my $RCSRevKey = '$Revision: 0.96 $';
+my $RCSRevKey = '$Revision: 0.98 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
 
@@ -22,15 +22,21 @@ $iconpath = &expand_path('~/.ec/ec.xpm');
 $cfgfilename = &expand_path('~/.ec/.ecconfig');
 # Server authorization file.
 $serverfilename = &expand_path('~/.ec/.servers');
-# Base 64 encoder and decoder filter
-$base64enc = &expand_path('~/.ec/encdec');
 
 # $headerid = "X-Mailer\: EC E-Mail Client, Version $VERSION.";
 my $datesortorder;
 # Default directory for user's file opens and saves.
 my $defaultuserdir;
 
-my $config; # Pointer to config hash.  Refer to EC::Config.pm
+# Config hash reference.  Refer to EC::Config.pm
+my $config = &EC::Config::new ($cfgfilename); 
+
+# Global widget references.
+#   Main Window widget.
+my $mw = &init_main_widgets;  
+#   Dialog Boxes
+my $savefiledialog = undef;  # File save dialogs
+my $insertfiledialog = undef;  
 
 ##
 ##  The following code is for Socket stuff.
@@ -74,6 +80,12 @@ my @base64_headers = ('Content-Type: application/octet-stream; name=',
 my $mime_boundary = "_----------------------------------";
 my @attachments = ();  # File attachments for outgoing messages.
 
+# Base 64 encoder and decoder filter
+my $base64enc = &expand_path('~/.ec/encdec');
+
+#
+# Get user info
+#
 ($localuser,$dummy,$UID,@dummy) = getpwuid($<); undef @dummy;
 $localuser =~ /(.*)/;
 
@@ -82,17 +94,16 @@ $username=<LOGNAME>;
 close LOGNAME;
 chop $username;
 
-sub die_gracefully {
+sub sock_close_on_err {
+#sub die_gracefully {
     local($msg) = @_;
     print STDERR "An error occurred: $msg\n";
     print STDERR "Resetting.\n";
-    unlink $LFILE;
-      print "<<<RSET\n" if ($config->{verbose});
-      print SOCK "RSET\r\n";
-      print "<<<QUIT\n" if ($config->{verbose});
-      print SOCK "QUIT\r\n";
-      close (SOCK);
-#    exit(1);
+    print "<<<RSET\n" if ($config->{verbose});
+    print SOCK "RSET\r\n";
+    print "<<<QUIT\n" if ($config->{verbose});
+    print SOCK "QUIT\r\n";
+    close (SOCK);
 }
 
 
@@ -103,20 +114,19 @@ sub close_server {
     print SOCK "QUIT\r\n";
     ($status, $smsg) = &pop_ack();
     if ($status ne "OK") {
-	&die_gracefully($smsg);
+	&sock_close_on_err($smsg);
     }
     close SOCK;
   }
 }
 
 sub openserver {
-  my ($mw, $remote, $port, $user, $passwd) = @_;
+  my ($w, $remote, $port, $user, $passwd) = @_;
   my ($iaddr,$paddr,$proto,$status,$smsg,$sockaddr);
-  my ($err, $errcode);
+  my ($err, $errcode,$forwardpath);
   my $md = $config->{'maildomain'};
-  my $c = $mw -> Subwidget( 'canvas' );
-  my $servermsg = $mw -> Subwidget( 'servermsg' );
-  my $t = $mw -> Subwidget( 'text' );
+  my $c = $w -> Subwidget ('button_bar');
+  my $servermsg = $w -> Subwidget( 'servermsg' );
   $| = 1;
   $c -> dchars( $servermsg, '0', 'end' );
   $c -> insert( $servermsg, 'end',
@@ -137,7 +147,7 @@ sub openserver {
     alarm( 0 );
   };
   if ($@ =~ /gethostbyname/ or not $iaddr) {
-    &server_error_dialog( $mw, $port,
+    &server_error_dialog( $w, $port,
 		  "$remote:\nGethostbyname function timed out:\n$!" );
     &close_server;
     $errcode = 'gethostbyname';
@@ -162,7 +172,7 @@ sub openserver {
     alarm( 0 );
   };
   if( $@ =~ /socket/ ) {
-    &server_error_dialog( $mw, $port, "Can't connect to $remote:\n$!" );
+    &server_error_dialog( $w, $port, "Can't connect to $remote:\n$!" );
     &close_server;
     $errcode = 'socket';
     $err =  undef;
@@ -178,15 +188,15 @@ sub openserver {
     alarm( 0 );
   };
   if ( $@ =~ /timeout/ ) {
-    &server_error_dialog( $mw, $port, "Connect timeout: $!." );
+    &server_error_dialog( $w, $port, "Connect timeout: $!." );
     &close_server;
     $err = undef;
     $errcode = 'socket';
     return $err;
   }
   # Catch whatever signals we need to...
-  $SIG{"INT"} = 'die_gracefully';
-  $SIG{"TERM"} = 'die_gracefully';
+  $SIG{"INT"} = 'sock_close_on_err';
+  $SIG{"TERM"} = 'sock_close_on_err';
   print "select..." if $config->{debug};
   select(SOCK); $| = 1; select(STDOUT); # always flush SOCK
   print "done\n" if $config->{debug};
@@ -194,7 +204,7 @@ sub openserver {
   if( $port eq 25 ) {
     # if SMTP, wait for server initiation
     if( ! defined ( $status = &smtpack ) ) {
-      &server_error_dialog( $mw, $port,
+      &server_error_dialog( $w, $port,
 			    "Timed out while waiting for server greeting." );
       $errcode = 'servergreeting';
       $err = undef;
@@ -203,7 +213,7 @@ sub openserver {
     print "$status\n" if ($config -> {verbose}) and defined $status;
     while ( $status !~ /^220|^421/ ) {
       if( ! defined ( $status = &smtpack(1) ) ) {
-	&server_error_dialog( $mw, $port,
+	&server_error_dialog( $w, $port,
 			      "Timed out during server greeting." );
 	$errcode = 'SMTP Timeout';
 	$err = undef;
@@ -211,7 +221,7 @@ sub openserver {
       };
       if ( $status =~ /^421/ms ) {
 	&close_server;
-	&server_error_dialog( $mw, $port,
+	&server_error_dialog( $w, $port,
 			      "421: Service not available: $!" );
 	$errcode='SMTP Service not available.';
 	$err = undef;
@@ -222,7 +232,7 @@ sub openserver {
     print SOCK "HELO $md\r\n";
     if( ! defined ( $status = &smtpack ) ) {
       &close_server;
-      &server_error_dialog( $mw, $port,
+      &server_error_dialog( $w, $port,
 			    "\'HELO $md\' timed out... resetting." );
       $errcode = 'SMTP Greeting timed out.';
       $err = undef;
@@ -233,7 +243,7 @@ sub openserver {
     while ( $status !~ /^250|^500|^501|^504|^421/ ) {
       if( ! defined ( $status = &smtpack ) ) {
 	&close_server;
-	&server_error_dialog( $mw, $port,
+	&server_error_dialog( $w, $port,
 	      "\'HELO $md\' error. Server said: $status... resetting." );
 	$errcode = 'HELO';
 	$err = undef;
@@ -243,7 +253,7 @@ sub openserver {
       # rfc821 specified error condition
       if ($status =~ /^500|^501|^504|^421/ ) {
 	&close_server;
-	&server_error_dialog( $mw, $port,"$status: $!... Resetting" );
+	&server_error_dialog( $w, $port,"$status: $!... Resetting" );
 	$errcode = "smtp $status";
 	$err = undef;
 	return $err;
@@ -263,7 +273,7 @@ sub openserver {
     while ( $status !~ /^250|^552|^451|^452|^500|^501|^421/ ) {
       if( ! defined ( $status = &smtpack ) ) {
 	&close_server;
-	&server_error_dialog($mw, $port,
+	&server_error_dialog($w, $port,
 	     "\'$user\@$md\' error. Server said: $status ... resetting.");
 	$errcode = "$status";
 	$err = undef;
@@ -272,46 +282,40 @@ sub openserver {
       print "$status\n" if ($config->{verbose}) and defined $status;
       if ($status =~ /^552|^451|^452|^500|^501|^421/ ) {
 	&close_server;
-	&server_error_dialog($mw, $port,
+	&server_error_dialog($w, $port,
       "\'MAIL FROM: $user\@$md\' error. Server said: $status ... resetting." );
 	$errcode = "SMTP MAIL FROM: $status";
 	$err = undef;
 	return $err;
       }
     }
-    local $msg = $t -> get( '1.0', 'end' );
+    my $msgtext = $w -> Subwidget('text') -> get( '1.0', 'end' );
 
-    @addressees = &addressees($msg);
+    print "---\n$msgtext\n\n---\n";
+    my @addressees = &addressees($msgtext);
     foreach my $addressee (@addressees) {
-      local $forwardpath = envelope_addr ($addressee);
+      $forwardpath = envelope_addr ($addressee);
       print "$forwardpath\n" if ($config->{debug});
       print "<<<RCPT TO:$forwardpath\n" if $config->{verbose};
       print SOCK "RCPT TO:$forwardpath\r\n";
       if( ! defined ( $status = &smtpack ) ) {
 	&close_server;
-        &server_error_dialog($mw, $port, "Server timeout");
+        &server_error_dialog($w, $port, "Server timeout");
 	$errcode = "SMTP timeout";
         $err = undef;
 	return $err;
       }
       print "$status\n" if ($config->{verbose}) and defined $status;
-      while ( $status !~ /^25|^42|^45|^50|^55/ ) {
-        print
-       "SMTP: \'RCPT TO: <$forwardpath>' error. Server said: $status ... resetting.\n";
+      while ( $status !~ /^25/ ) {
+	  &close_server;
+        server_error_dialog ($w, $port,
+       "SMTP: \'RCPT TO: <$forwardpath>' error. Server said: $status ... resetting.\n");
         if( ! defined ( $status = &smtpack ) ) {
 	  print "$status\n" if ($config->{verbose}) and defined $status;
 	  $errcode = "SMTP error: RCPT TO:<$forwardpath>";;
 	  $err = undef;
 	  return $err;
         };
-        if ($status =~ /^25|^42|^45|^50|^55/ ) {
-	  &close_server;
-	  &server_error_dialog($mw, $port,
-    "\'RCPT TO: <$forwardpath>' error. Server said: $status ... resetting.");
-	  $errcode = "SMTP error: RCPT TO:<$forwardpath>";;
-	  $err = undef;
-	  return $err;
-        }
       }
     }
   }
@@ -319,7 +323,7 @@ sub openserver {
   if( $port ne 25 ) {
     ($status, $smsg) = &pop_ack();
     if ($status ne "OK") {
-      &server_error_dialog( $mw, $port, "Authorization error: $remote." );
+      &server_error_dialog( $w, $port, "Authorization error: $remote." );
       $errcode = 'auth';
       $err = undef;
       return $err;
@@ -328,7 +332,7 @@ sub openserver {
     print SOCK "USER $user\r\n";
     ($status, $smsg) = &pop_ack();
     if ($status ne "OK") {
-      &server_error_dialog( $mw, $port, "Authorization error: $remote." );
+      &server_error_dialog( $w, $port, "Authorization error: $remote." );
       $errcode = 'auth';
       goto CLOSE_SERVER;
     }
@@ -336,7 +340,7 @@ sub openserver {
     print SOCK "PASS $passwd\r\n";
     ($status, $smsg) = &pop_ack();
     if ($status !~ /OK/) {
-      &server_error_dialog( $mw, $port, "Authorization error: $remote." );
+      &server_error_dialog( $w, $port, "Authorization error: $remote." );
       $errcode = 'auth';
       $err = undef;
       return $err;
@@ -354,11 +358,11 @@ sub openserver {
   return $errcode;
 }
 
+
 # This unfolds To: Cc: and Bcc:'s on one line only.
 sub addressees {
   my ($msg) = @_;
-  my @addressees;
-  pos $msg = 0;
+  my @addressees, @addressees2;
   $msg =~ /^To:\s+(.*?)$/smi;
   @addressees = split /, */, $1;
   pos $msg = 0;
@@ -385,7 +389,7 @@ sub passwd_dialog {
 sub server_error_dialog {
   my ($mw, $port, $msg) = @_;
   require Tk::Dialog;
-  $mw -> Subwidget('canvas') ->
+  $mw -> Subwidget('button_bar') ->
     dchars( $mw -> Subwidget('servermsg'), '0', 'end' );
   my $title = ($port =~ /25/)?"SMTP Server Error":"POP3 Server Error";
   my $dialog = $mw -> Dialog( -title => $title,
@@ -431,9 +435,6 @@ sub nummsgs {
   print "<<<STAT\n" if $config->{verbose};
   print SOCK "STAT\r\n";
   local($status, $messages) = &pop_ack();
-  if ($status !~ /OK/) {
-#        &die_gracefully("stat: $messages");
-  }
   ($msgs,$octets) = split(' ',$messages);
   print "done\n" if $config->{debug};
   return( $msgs, $octets);
@@ -443,20 +444,20 @@ sub nummsgs {
 # while server is relaying message.
 sub smtpack {
   my ($delay) = @_;
-  local $l;
+  local $ack;
     $SIG{ALRM} = sub{ alarm 0; die 'Time out: smtp acknowledgement\n' };
     $delay = 1 if (not $delay);
     alarm( ($config->{servertimeout}) * $delay );
   eval {
-    while ( defined ( $l = <SOCK> ) ) {
+    while ( defined ( $ack = <SOCK> ) ) {
       Tk::Event::DoOneEvent(255);
-      goto RET_ACK if $l =~ /^\d\d\d/;
+      goto RET_ACK if $ack =~ /^\d\d\d/;
     }
   };
   return undef;
 RET_ACK:
   alarm( 0 );
-  return $l;
+  return $ack;
 }
 
 sub pop_ack {
@@ -491,18 +492,8 @@ sub pop_ack {
     return ($stat, $msg);
 }
 
-sub retrieve_local {
-  my ($mw) = @_;
-  $mailfile = ((defined $ENV{'MAIL'}) ? $ENV{'MAIL'} :
-	       ($config->{mailspooldir}."/" . $localuser));
-  open(MBOX, ">>$mailfile") ||
-    &die_gracefully("Can't open mailbox $mailfile " .
-		    "- some mail is in $tempfile");
-  flock(MBOX,$LOCK_EX);
-}
-
 sub retrieve {
-  local($msgnum, $servermsg, $c) = @_;
+  local($msgnum) = @_;
   local($themsg) = "";
   local($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime(time);
   local($tempfile) = "/tmp/poptmp.$$";
@@ -512,9 +503,7 @@ sub retrieve {
   print "<<<RETR $msgnum\n" if ($config->{verbose});
   print SOCK "RETR $msgnum\r\n";
   local($status,$smsg) = &pop_ack();
-  if ($status !~ /OK/) {
-#		&die_gracefully($smsg);
-  } else {
+  if ($status != /OK/) {
     #
     # Some mailers are very persnickity about the time string,
     # hence the goop. BR Wed Sep  8 14:52:34 MDT 1993
@@ -534,7 +523,7 @@ sub retrieve {
       print SOCK "DELE $msgnum\r\n";
       ($status, $smsg) = &pop_ack();
       if ($status ne "OK") {
-	# &die_gracefully($smsg);
+	# &sock_close_on_err($smsg);
       }
     }
   }
@@ -542,7 +531,7 @@ sub retrieve {
   $mailfile = ((defined $ENV{'MAIL'}) ? $ENV{'MAIL'} :
 	       ($config->{mailspooldir}."/" . $localuser));
   open(MBOX, ">>$mailfile") ||
-    &die_gracefully("Can't open mailbox $mailfile " .
+    &sock_close_on_err("Can't open mailbox $mailfile " .
 		    "- some mail is in $tempfile");
   flock(MBOX,$LOCK_EX);
   # and, in case someone appended
@@ -551,7 +540,7 @@ sub retrieve {
   seek(SPOOLOUT,0,0);
   while(<SPOOLOUT>){
     print MBOX $_ ||
-      &die_gracefully( ((defined $local_mailer)
+      &sock_close_on_err( ((defined $local_mailer)
 			? "Can't pipe to local mailer"
 			: "Can't write to mailbox $mailfile")
 		       . "- some mail is in $tempfile");
@@ -566,11 +555,11 @@ sub get_user_info {
   my(%sites);
   if (-f $serverfilename) {
     open(POPFILE,$serverfilename)
-      || &die_gracefully("Can't Open $serverfilename file! $!");
+      || &sock_close_on_err("Can't Open $serverfilename file! $!");
     local($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
 	  $atime,$mtime,$ctime,$blksize,$blocks) = stat POPFILE;
     if($mode != 0100600){
-      &die_gracefully("$serverfilename needs permissions rw-------");
+      &sock_close_on_err("$serverfilename needs permissions rw-------");
     }
     my $lineno = 1;
     while (<POPFILE>) {
@@ -608,9 +597,9 @@ sub get_user_info {
 
 sub visit_sites {
   my ($mw, $sites) = @_;
-  my ($openstatus,$i);
+  my ($openstatus,$i,$msgnum);
   my $servermsg = $mw -> Subwidget( 'servermsg' );
-  my $c = $mw -> Subwidget( 'canvas' );
+  my $c = $mw -> Subwidget( 'button_bar' );
   foreach $i (@{$sites->{"sitelist"}}) {
     next if ( $i -> {'port'} == ($config->{smtpport}) );
     $pass = $i->{"pass"};
@@ -623,15 +612,16 @@ sub visit_sites {
     $c -> dchars( $servermsg, '0', 'end' );
     $c -> insert( $servermsg, 'end', "Number of messages on host: $msgs.");
     $c -> update;
-    for ($msg = 1; $msg <= $msgs; $msg++ ) {
+    for ($msgnum = 1; $msgnum <= $msgs; $msgnum++ ) {
       $c -> dchars( $servermsg, '0', 'end' );
-      $c -> insert( $servermsg, 'end', "Retrieving message $msg/$msgs.");
+      $c -> insert( $servermsg, 'end', "Retrieving message $msgnum/$msgs.");
       $c -> update;
-      &retrieve( $msg, $servermsg, $c );
+      &retrieve ($msgnum);
     }
     &close_server;
   SERV_ERROR:
   }
+  $c -> dchars ($servermsg, '0', 'end');
 }
 	
 sub format_sender {
@@ -809,12 +799,10 @@ sub sort_column {
       (($l -> {'ml_sort_descending'} =~ /0/ ) ? 1 : 0 );
     $datesortorder = $l -> {'ml_sort_descending'};
   }
-  &watchcursor($l->parent->parent);
   eval {
     &listmailfolder( $l, $currentfolder );
   };
   $l -> update;
-  &defaultcursor($l->parent->parent);
 }
 
 # like the above, but for the menu options, not the list columns.
@@ -831,17 +819,14 @@ sub sort_option {
       (($l -> {'ml_sort_descending'} =~ /0/ ) ? 1 : 0 );
     $datesortorder = $l -> {'ml_sort_descending'};
   }
-  &watchcursor($mw);
   eval {
     &listmailfolder( $l, $currentfolder );
   };
   $l -> update;
-  &defaultcursor($mw);
 }
 
 sub changefolder {
   my ($mw, $f) = @_;
-  &watchcursor( $mw );
   eval {
     my $l = $mw -> Subwidget( 'messagelist' );
     my $t = $mw -> Subwidget( 'text' );
@@ -853,7 +838,6 @@ sub changefolder {
     &updatemsgcount( $mw, $currentfolder );
     $mw -> configure( -title => "$currentfolder");
     };
-  &defaultcursor( $mw );
 }
 
 sub listmailfolder {
@@ -861,84 +845,97 @@ sub listmailfolder {
   my (@msgfiles,@msgfilelist,@subjline,@fromline,@dateline,@msgtext,$msgid);
   my ($listingstatus,$lindex,@findex,$sresult);
   my ($listingdate,$listingfrom,$listingsubject,$listingid);
-  $l -> delete( 0, 'end' );
-  $#sortedmessages = -1;
-  opendir MDIR, $folder or die "Could not open folder $folder: $!\n";
-  @msgfiles = grep /[^\.]|[^\.][^\.]/, readdir MDIR;
-  closedir MDIR;
-  foreach $msgid (@msgfiles) {
-    next if $msgid =~ /\.index/;
-    next if $msgid eq '';
-    @msgtext = content("$folder/$msgid");
-    @subjline = grep /^Subject: /i, @msgtext;
-    @fromline = grep /^From: /i, @msgtext;
-    @dateline = grep /^Date: /i, @msgtext;
-    chomp $fromline[0];
-    chomp $subjline[0];
-    $fromline[0] =~ s/From:\s*//i;
-    $subjline[0] =~ s/Subject:\s*//i;
-    $dateline[0] =~ s/Date:\s*//i;
-    $dateline[0] =~ s/\n//; #instead of chomp.
-    push @msgfilelist, ( &format_possible_rfcdate($dateline[0]).' ~~~'.
-		  &format_sender($fromline[0]).'~~~'.
-		  &format_subject($subjline[0]) . "~~~$msgid" );
-  }
-  if ( $config->{sortfield} =~ /1/ ) { # sort by date
-    @sortedmessages = sort {
-      $a =~ /^(.*?)\s~~~/; my $a1 = $1;
-      $b =~ /^(.*?)\s~~~/; my $b1 = $1;
-      if ( length $a1 and  length $b1 ) {
-	&rfcdate_compare($a1,$b1);
+  &watchcursor ($mw);
+  eval {
+      $l -> delete( 0, 'end' );
+      $#sortedmessages = -1;
+      opendir MDIR, $folder or die "Could not open folder $folder: $!\n";
+      @msgfiles = grep /[^\.]|[^\.][^\.]/, readdir MDIR;
+      closedir MDIR;
+      foreach $msgid (@msgfiles) {
+	  next if $msgid =~ /\.index/;
+	  next if $msgid eq '';
+	  @msgtext = content("$folder/$msgid");
+	  @subjline = grep /^Subject: /i, @msgtext;
+	  @fromline = grep /^From: /i, @msgtext;
+	  @dateline = grep /^Date: /i, @msgtext;
+	  chomp $fromline[0];
+	  chomp $subjline[0];
+	  $fromline[0] =~ s/From:\s*//i;
+	  $subjline[0] =~ s/Subject:\s*//i;
+	  $dateline[0] =~ s/Date:\s*//i;
+	  $dateline[0] =~ s/\n//; #instead of chomp.
+	  push @msgfilelist, ( &format_possible_rfcdate($dateline[0]).' ~~~'.
+			       &format_sender($fromline[0]).'~~~'.
+			       &format_subject($subjline[0]) . "~~~$msgid" );
       }
-    } @msgfilelist;
-  } elsif ( $config->{sortfield} =~ /2/) { # sort by sender
-    @sortedmessages = sort {
-      $a =~ /^.*?~~~(.*?)~~~/; $a1 = $1;
-      $b =~ /^.*?~~~(.*?)~~~/; $b1 = $1;
-      ($l -> {ml_sort_descending}) ? $b1 cmp $a1 : $a1 cmp $b1 ;
-    } @msgfilelist;
-  } elsif ( $config->{sortfield} =~ /3/) { # sort by subject
-    @sortedmessages = sort {
-      $a =~ /^.*?~~~.*?~~~(.*?)~~~/; $a1 = $1;
-      $b =~ /^.*?~~~.*?~~~(.*?)~~~/; $b1 = $1;
-      ($l -> {ml_sort_descending}) ? $b1 cmp $a1 : $a1 cmp $b1 ;
-    } @msgfilelist;
-  } else { # don't sort
-    push @sortedmessages, @msgfilelist;
-  }
+      if ( $config->{sortfield} =~ /1/ ) { # sort by date
+	  @sortedmessages = sort {
+	      $a =~ /^(.*?)\s~~~/; my $a1 = $1;
+	      $b =~ /^(.*?)\s~~~/; my $b1 = $1;
+	      if ( length $a1 and  length $b1 ) {
+		  &rfcdate_compare($a1,$b1);
+	      }
+	  } @msgfilelist;
+      } elsif ( $config->{sortfield} =~ /2/) { # sort by sender
+	  @sortedmessages = sort {
+	      $a =~ /^.*?~~~(.*?)~~~/; $a1 = $1;
+	      $b =~ /^.*?~~~(.*?)~~~/; $b1 = $1;
+	      ($l -> {ml_sort_descending}) ? $b1 cmp $a1 : $a1 cmp $b1 ;
+	  } @msgfilelist;
+      } elsif ( $config->{sortfield} =~ /3/) { # sort by subject
+	  @sortedmessages = sort {
+	      $a =~ /^.*?~~~.*?~~~(.*?)~~~/; $a1 = $1;
+	      $b =~ /^.*?~~~.*?~~~(.*?)~~~/; $b1 = $1;
+	      ($l -> {ml_sort_descending}) ? $b1 cmp $a1 : $a1 cmp $b1 ;
+	  } @msgfilelist;
+      } else { # don't sort
+	  push @sortedmessages, @msgfilelist;
+      }
 
-  if ( -f "$folder/.index" ) {
-    @findex = content("$folder/.index");
-  }
-  foreach (@sortedmessages ) {
-    ($listingdate,$listingfrom,$listingsubject,$listingid) = split /~~~/, $_;
-    $listingstatus = '';
-    $sresult = grep /$listingid/, @findex;
-    if ( ! $sresult ) {
-      $listingstatus .= 'u';
-    }
-    if ( $config->{weekdayindate} =~ /0/ ) {
-      $listingdate =~ s/^\w\w\w\, //;
-    }
-    $l -> insert('end',[$listingstatus,
-	  $listingdate," $listingfrom"," $listingsubject"]);
-  }
+      if ( -f "$folder/.index" ) {
+	  @findex = content("$folder/.index");
+      }
+      foreach (@sortedmessages ) {
+	  ($listingdate,$listingfrom,$listingsubject,$listingid) = 
+	      split /~~~/, $_;
+	  $listingstatus = '';
+	  $sresult = grep /$listingid/, @findex;
+	  if ( ! $sresult ) {
+	      $listingstatus .= 'u';
+	  }
+	  if ( $config->{weekdayindate} =~ /0/ ) {
+	      $listingdate =~ s/^\w\w\w\, //;
+	  }
+	  $l -> insert('end',[$listingstatus,
+			      $listingdate," $listingfrom",
+			      " $listingsubject"]);
+      }
+  }; # eval
+  &defaultcursor ($mw);
 }
 
 sub movemail {
-  my (@msgs, $line, $mbox, $msgid, $idcnt, $msgcount, $filterfolder );
+  my (@msgs, $mbox, $idcnt, $msgcount, $filterfolder );
   $mbox = content_as_str($systemmbox);
   # the split gives us a 0th empty element whether or not
   # there's a match - the first message if it exists is
   # always $msgs[1], because a match of the mailbox record
   # occurs on the first line.
+  #
+  # The regexp has to take into account the source of the message:
+  # e.g., "From root", "From popserver", etc. which means that 
+  # the string containing the mail source (matched by \S+),
+  # cannot contain whitespace.  Only tested on Linux and Solaris 
+  # systems.
+  #
   if ($^O =~ /solaris/) {
       @msgs = split /^From \S+ \w\w\w \w\w\w\s+?\d+? \d\d:\d\d:\d\d \d\d\d\d.*?/ms, $mbox;
   } else {
       @msgs = split /^From \S+ \w\w\w \w\w\w\s+?\d+? \d\d:\d\d:\d\d \w\w\w \d\d\d\d.*?/ms, $mbox; 
   }
-return if ! defined shift @msgs;
-  # if there was actually a match
+  return if ! defined shift @msgs;
+  # if there is actually a message
   $msgsequence = 1;
   foreach my $message (@msgs) {
       foreach my $filter (@{$config->{filter}}) {
@@ -970,13 +967,13 @@ return if ! defined shift @msgs;
 
 sub redisplaymessage {
   my ($mw) = @_;
-  &watchcursor($mw);
+  &watchcursor ($mw);
   eval {
     my $t = $mw -> Subwidget('text');
     $t -> delete( '1.0', 'end' );
     &displaymessage( $mw, $currentfolder );
   };
-  &defaultcursor($mw);
+  &defaultcursor ($mw);
 }
 
 sub displaymessage {
@@ -985,43 +982,45 @@ sub displaymessage {
   my $t = $mw -> Subwidget( 'text' );
   my ($ml, $line, $ofrom, $hdr, @hdrlines, $body, $msg, $msgfile);
   $mw -> update;
+  # this prevents the program from carping if there's no selection.
   my $nrow = ($l->curselection)[0];
   return if $nrow eq '';
-  &watchcursor( $mw );
-  $t -> delete( '1.0', 'end' );
-  # this prevents the program from carping if there's no selection.
-  $msgfile = $sortedmessages[($l->curselection)[0]];
-  $msgfile =~ s/.*\~\~\~//;
-  $msg = content_as_str("$msgdir/$msgfile");
-  &addmsgtoindex( $msgfile,$msgdir );
-  &updatemsgcount($mw, $msgdir);
-  my @listrow = $l -> getRow( $nrow );
-  $listrow[0] = '';
-  $l -> delete( $nrow );
-  $l -> insert( $nrow, [@listrow] );
-  $l -> selectionSet( $nrow );
-  ($hdr, $body) = split /\n\n/, $msg, 2;
-  if( $config->{headerview} eq 'full' ) {
-    @hdrlines = split /\n/, $hdr;
-    foreach( @hdrlines ) {
-      next if /^$/smi;
-      $t -> insert( 'end', "$_\n", 'header' );
-    }
-    $t -> insert( 'end', "\n", 'header' );
-  }
-  if( $config->{headerview} eq 'brief' ) {
-    @hdrlines = split /\n/, $hdr;
-    foreach( @hdrlines ) {
-      next unless /^To\: |^From\: |^Date\: |^Subject\: /smi;
-      $t -> insert( 'end', "$_\n", 'header' );
-    }
-    $t -> insert( 'end', "\n", 'header' );
-  }
-  $t -> insert( 'end', "$body" );
-  $t -> markSet( 'insert', '1.0' );
-  $t -> see( 'insert' );
-  $t -> focus;
-  &defaultcursor( $mw );
+  &watchcursor ($mw);
+  eval {
+      $t -> delete( '1.0', 'end' );
+      $msgfile = $sortedmessages[($l->curselection)[0]];
+      $msgfile =~ s/.*\~\~\~//;
+      $msg = content_as_str("$msgdir/$msgfile");
+      &addmsgtoindex( $msgfile,$msgdir );
+      &updatemsgcount($mw, $msgdir);
+      my @listrow = $l -> getRow( $nrow );
+      $listrow[0] = '';
+      $l -> delete( $nrow );
+      $l -> insert( $nrow, [@listrow] );
+      $l -> selectionSet( $nrow );
+      ($hdr, $body) = split /\n\n/, $msg, 2;
+      if( $config->{headerview} eq 'full' ) {
+	  @hdrlines = split /\n/, $hdr;
+	  foreach( @hdrlines ) {
+	      next if /^$/smi;
+	      $t -> insert( 'end', "$_\n", 'header' );
+	  }
+	  $t -> insert( 'end', "\n", 'header' );
+      }
+      if( $config->{headerview} eq 'brief' ) {
+	  @hdrlines = split /\n/, $hdr;
+	  foreach( @hdrlines ) {
+	      next unless /^To\: |^From\: |^Date\: |^Subject\: /smi;
+	      $t -> insert( 'end', "$_\n", 'header' );
+	  }
+	  $t -> insert( 'end', "\n", 'header' );
+      }
+      $t -> insert( 'end', "$body" );
+      $t -> markSet( 'insert', '1.0' );
+      $t -> see( 'insert' );
+      $t -> focus;
+  }; # eval
+  &defaultcursor ($mw);
 }
 
 sub addmsgtoindex {
@@ -1078,7 +1077,7 @@ sub deletemsgfromindex {
 sub updatemsgcount {
   my($mw,$folder) = @_;
   my $l = $mw -> Subwidget( 'messagelist' );
-  my $c = $mw -> Subwidget( 'canvas' );
+  my $c = $mw -> Subwidget( 'button_bar' );
   my $m = $mw -> Subwidget( 'foldermenu' );
   my $msgcounter = $mw -> Subwidget( 'msgcounter' );
   my ($f, $findex, $bname, @ffiles, $unread, $nmsgs );
@@ -1114,10 +1113,9 @@ sub movemesg {
   my( $mw, $dir ) = @_;
   my $l = $mw -> Subwidget( 'messagelist' );
   my $t = $mw -> Subwidget( 'text' );
-  my $c = $mw -> Subwidget( 'canvas' );
+  my $c = $mw -> Subwidget( 'button_bar' );
   my $msgcounter = $mw -> Subwidget( 'msgcounter' );
   my($il, $selindex, $omsgfile,$nmsgfile );
-  &watchcursor;
   eval {
     $selindex = ($l->curselection)[0];
     print "$selindex\n" if $config->{debug};
@@ -1156,11 +1154,11 @@ sub movemesg {
 
     $t -> delete( '1.0', 'end' );
     $l -> delete( ($l->curselection)[0] );
-    &listmailfolder( $l, $currentfolder );
 
     if( $selindex >= ( $l -> index( 'end' ) ) ) {
       $selindex--;
     }
+    &listmailfolder ($l, $currentfolder);
     $l -> selectionSet( $selindex, $selindex );
     if( $selindex >= 0 ) {
       &displaymessage( $mw, $currentfolder );
@@ -1168,10 +1166,7 @@ sub movemesg {
     }
 
     &updatemsgcount( $mw, $currentfolder );
-
     }; # eval
-
-  &defaultcursor;
 }
 
 sub emptytrash {
@@ -1196,14 +1191,15 @@ sub emptytrash {
       print "unlink $tf.\n" if $config->{debug};
     }
   }
+  &updatemgcount ($mw, $config->{trashdir});
+  &listmailfolder ($mw -> Subwidget ('messagelist', $currentfolder));
 }
 
 sub interval_poll {
   my ($mw, $lsites) = @_;
-  my $l = $mw -> Subwidget( 'messagelist' );
   &incoming_poll(@_);
-  $l->after(($config->{pollinterval}),sub{&interval_poll($mw, $lsites)})
-    if $config->{pollinterval};
+   $mw->after(($config->{pollinterval}),sub{&interval_poll($mw, $lsites)})
+     if $config->{pollinterval};
 }
 
 sub incoming_poll {
@@ -1211,10 +1207,7 @@ sub incoming_poll {
   my ($hdr, $selindex,$insert);
   my $l = $mw -> Subwidget( 'messagelist' );
   my $t = $mw -> Subwidget( 'text' );
-  my $c = $mw -> Subwidget( 'canvas' );
-  my $servermsg = $mw -> Subwidget( 'servermsg' );
-  my $msgcounter = $mw -> Subwidget( 'msgcounter' );
-  &watchcursor( $mw );
+  &watchcursor ($mw);
   eval {
     # remember selection and insertion point if there is one
     $selindex = ($l->curselection)[0] if defined $l;
@@ -1225,7 +1218,6 @@ sub incoming_poll {
     &listmailfolder( $l, $currentfolder );
     &updatemsgcount($mw,$_) foreach (@{$config->{folder}});
     &emptytrash;
-    $c -> dchars( $servermsg, '0', 'end' );
     if( $selindex ne '' and defined $selindex ) {
       $l -> selectionSet( $selindex, $selindex) if ($selindex ne '');
       $l -> see( $selindex );
@@ -1236,7 +1228,7 @@ sub incoming_poll {
       $t -> see('insert');
     }
   };
-  &defaultcursor( $mw );
+  &defaultcursor ($mw);
 }
 
 sub quitclient {
@@ -1247,10 +1239,10 @@ sub quitclient {
 sub sendmsg {
   my ($cw, $ct, $c, $servermsg) = @_;
   my $md = $config->{maildomain};
-  my ($openstatus,$addressee,$toline,$subjline,$i);
+  my ($openstatus,$unfolded_addressees,$i,$line);
   my (@msgtextlist,$fcc_file,$msghdr,$msgtext,@hdrlist,@mimehdrs);
-  my (@addressees, @ccaddresses);
-  &watchcursor($cw);
+  my (@addressees, @formatted_attachments);
+  &watchcursor ($cw);
   eval {
     $c -> dchars( $servermsg, '0', 'end' );
     $c -> insert( $servermsg, 'end',
@@ -1274,15 +1266,15 @@ sub sendmsg {
     if ( $config->{usesendmail} ) {
       ($msghdr, $msgtext) = split /$msgsep/, $ct -> get( '1.0', 'end' );
       @addressees = &addressees( $msghdr );
-      my $addressees = join ",", @addressees;
+      $unfolded_addressees = join ",", @addressees;
       if ($config->{sendmailsetfrom}) {
 	open MTA,
 	  "|".$config->{sendmailprog}." -f ".
-	    $config->{sendmailsetfromaddress}." ".$addressees or
+	    $config->{sendmailsetfromaddress}." ".$unfolded_addressees or
 	    warn "Couldn't open ".$config->{sendmailprog}.": $!\n";
       } else {
 	open MTA,
-	  "|".$config->{sendmailprog}." $addressees" or
+	  "|".$config->{sendmailprog}." $unfolded_addressees" or
 	    warn "Couldn't open ".$config->{sendmailprog}.": $!\n";
       }
       print MTA "$msghdr\n$msgtext\n.\n";
@@ -1295,8 +1287,8 @@ sub sendmsg {
     if ($config->{useqmail}) {
       ($msghdr, $msgtext) = split /$msgsep/, $ct -> get( '1.0', 'end' );
       @addressees = &addressees( $msghdr );
-      my $addressees = join ",", @addressees;
-      open MTA, "|".$config->{qmailinjectpath}." ".$addressees or
+      my $unfolded_addressees = join ",", @addressees;
+      open MTA, "|".$config->{qmailinjectpath}." ".$unfolded_addressees or
 	    warn "Couldn't open ".$config->{qmailinjectpath}.": $!\n";
       print MTA "$msghdr\n$msgtext\n.\n";
       close MTA;
@@ -1323,17 +1315,17 @@ sub sendmsg {
       }
     }
     if ( $host eq '' or ! defined $host ) {
-      &die_gracefully( "No SMTP hostname defined\!\n" );
+      &sock_close_on_err( "No SMTP hostname defined\!\n" );
     }
     if ( $port != ($config->{smtpport}) ) {
-      &die_gracefully( "Incorrect port $port\!\n" );
+      &sock_close_on_err( "Incorrect port $port\!\n" );
     }
     if ( $uname eq '' or ! defined $uname ) {
-      &die_gracefully( "No user name defined\!\n" );
+      &sock_close_on_err( "No user name defined\!\n" );
     }
     # Probably want to make this enterable by the user...
     if ( $pass eq '' or ! defined $pass ) {
-      &die_gracefully( "No password defined\!\n" );
+      &sock_close_on_err( "No password defined\!\n" );
     }
     $c -> dchars( $servermsg, '0', 'end' );
     $c -> insert( $servermsg, 'end',
@@ -1414,13 +1406,12 @@ sub sendmsg {
       $mline = '.. ' if $mline eq '.';
       print SOCK "$mline\r\n";
     }
-    my ($l, @formatted_attachments);
     # send attachment files, if any.
     if ( ($#attachments > 0) or (length $attachments[0]) ) {
       @formatted_attachments = &format_file_attachments;
-      foreach $l (@formatted_attachments) {
-	print "<<<$l\n" if ($config->{verbose});
-	print SOCK "$l\r\n";
+      foreach $line (@formatted_attachments) {
+	  print "<<<$line\n" if ($config->{verbose});
+	  print SOCK "$line\r\n";
       }
     }
     print "<<<\n\<<<.\n" if ($config->{verbose});
@@ -1460,7 +1451,7 @@ sub sendmsg {
   $c -> insert( $servermsg, 'end',
 		"Closing server... ");
   $cw -> update;
-  &defaultcursor($cw);
+  &defaultcursor ($cw);
   print "<<<QUIT\n" if ($config->{verbose});
   print SOCK "QUIT\r\n";
   local $quitack = &smtpack();
@@ -1483,29 +1474,9 @@ sub sendmsg {
   $cw -> destroy;
   return 1;
 
-  SERVER_ERR:
-  &defaultcursor($cw);
-#  if ( @! =~ /openserver/ ) {
-#    &close_server;
-#  }
+ SERVER_ERR:
+  &defaultcursor ($cw);
   return 1;
-#  return undef if not defined $quitack;
-#  print "$quitack\n" if ($config->{verbose}) and defined $quitack;
-#  return 1 if $quitack =~ /221/;
-#  while ( $quitack !~ /^221|^500/ ) {
-#    $status = &smtpack();
-#    print "$status\n" if ($config->{verbose});
-#    if ($status =~ /^500/ ) {
-#      $c -> dchars( $servermsg, '0', 'end' );
-#      $c -> insert( $servermsg, 'end', "$status: $!" );
-#      $cw -> update;
-#      print "<<<RSET\n" if ($config->{verbose});
-#      print SOCK "RSET\r\n";
-#      return;
-#    }
-#  }
-#  $cw -> destroy;
-#  return undef;
  CLOSE_MTA:
   $cw -> destroy;
   return 1;
@@ -1584,7 +1555,7 @@ sub format_text_headers {
 }
 
 sub format_file_attachments {
-  my (@formatted,$fullname,$h,$l);
+  my (@formatted,$fullname,$h,$line);
   foreach $fullname (@attachments) {
     $name = $fullname;
     chomp $name;
@@ -1597,10 +1568,10 @@ sub format_file_attachments {
     push @formatted, ('');
     open ENC, "$base64enc -e -b <$fullname|" or
       warn "Couldn't encode $fullname: $!\n";
-    while ( defined ($l = <ENC>) ) {
-      chomp $l;
+    while ( defined ($line = <ENC>) ) {
+      chomp $line;
+      push @formatted, ($line);
       # Remove any extra newlines
-      push @formatted, ($l) unless $l eq '';
     }
     close ENC;
     push @formatted, ('');
@@ -1643,7 +1614,7 @@ sub reply {
   my ($mw) = @_;
   my $cw = &composewidgets( $mw );
   my $ct = $cw -> Subwidget( 'text' );
-  my $c = $mw -> Subwidget( 'canvas' );
+  my $c = $mw -> Subwidget( 'button_bar' );
   my $l = $mw -> Subwidget( 'messagelist' );
   my $servermsg = $mw -> Subwidget( 'servermsg' );
   my ($origmsgid, $origmsg, $origbody, $fromaddr, $replyaddr, $subj);
@@ -1707,7 +1678,7 @@ sub compose {
   my $sigfile = $config->{sigfile};
   my $cw = &composewidgets( $mw );
   my $ct = $cw -> Subwidget( 'text' );
-  my $c = $cw -> Subwidget( 'canvas' );
+  my $c = $cw -> Subwidget( 'button_bar' );
   my $fcc_file = $config->{fccfile};
   $ct -> insert( '1.0', "$tofield \n", 'header');
   $ct -> insert( '2.0', "$subjfield \n", 'header');
@@ -1739,9 +1710,6 @@ sub composemenu {
   $composefilemenu -> add( 'command', -label => 'Attachments...',
 		   -font => $config->{menufont},
 		   -command => sub{ &attachment_dialog( $mw, 'compose' ) } );
-  $composefilemenu -> add( 'command', -label => 'New Attachments...',
-		   -font => $config->{menufont},
-		   -command => sub{ &new_attachment_dialog( $mw, 'compose' ) } );
   $composefilemenu -> add( 'command', -label => 'Close',
 			   -accelerator => 'Alt-W',
 			   -font => $config->{menufont},
@@ -1804,7 +1772,7 @@ sub composewidgets {
   $menu -> pack( -anchor => 'w', -fill => 'x' );
   $ct -> pack( -expand => 1, -fill => 'both' );
   my $c = $cw -> Canvas( -height => 40, -width => 600 );
-  $cw -> Advertise( 'canvas' => $c );
+  $cw -> Advertise( 'button_bar' => $c );
   my $servermsg = $c -> createText( 500, 20, -font => $config->{menufont},
 				  -text => 'Composing message.',
 				  -justify => 'right' );
@@ -1834,175 +1802,20 @@ sub bind_sendmsg {
 
 sub attachment_dialog {
   my ($mw, $wherefrom) = @_;
+
+  require EC::Attachment_Dialog;
   my ($messagefile,$filelabel);
   if( $wherefrom eq 'main' ) {
     $messagefile =
-      $sortedmessages[$mw -> Subwidget ('messagelist') -> curselection]."\n";
+      $sortedmessages[$mw -> Subwidget ('messagelist') -> curselection];
     $messagefile =~ s/.*~~~//;
   }
-  my $workingdir = `pwd`;
-  my $aw = new MainWindow( -title => 'Attachment Files' );
-  $mw -> Advertise( 'mimedialog' => $aw );
-  my $al = $aw -> Scrolled( 'Listbox', -width => 40,
-    -height => 5, -font => $config->{menufont}, -scrollbars => 'ose' )
-    -> grid(-row => 1, -column => 1, -columnspan => 4, -pady => 5 );
-  $aw -> Advertise( 'attachmentlist' => $al );
-  $al -> Subwidget('xscrollbar') -> configure( -width => 10 );
-  $al -> Subwidget('yscrollbar') -> configure( -width => 10 );
-  my $lwd = $workingdir; chomp $lwd;
-
-  if ($wherefrom eq 'compose') {
-    my $asb = $aw -> Button( -text => 'Delete', -width => 8,
-	     -font => $config->{menufont},
-		     -command => sub { &remove_attachment($aw ) })
-      -> grid( -row => 3, -column => 1, -pady => 5 );
-    my $aab = $aw -> Button( -text => 'Attach...', -width => 8,
-	    -font => $config->{menufont},-command => sub { &attach_file( $aw, $lwd )})
-      -> grid( -row => 3, -column => 2, -pady => 5 );
-  } elsif ($wherefrom eq 'main') {
-    $filelabel =
-    $aw -> Label( -text => "Output File: $lwd", -font => $config->{menufont} )
-    ->grid( -row => 2, -column => 1, -sticky => 'w', -padx => 5,
-	  -columnspan => 4 );
-    $al -> bind( '<ButtonRelease-1>',
-	 sub { $filelabel -> configure( -text => "Output File: $lwd/" .
-         $al -> get( $al -> curselection)) && $al -> ButtonRelease_1 } );
-    $aw -> Advertise( 'filelabel' => $filelabel );
-    my $asb = $aw -> Button( -text => 'Save', -width => 8, -font => $config->{menufont},
-      -command => sub {&save_attachment($aw, $messagefile)})
-      -> grid( -row => 3, -column => 1, -pady => 5 );
-    my $abb = $aw -> Button( -text => 'Browse...',-font => $config->{menufont},
-	 -command => sub { #$lwd =~ s/(.*\/)/\1/;
-			   ($lwd = &attach_browse( $aw )) &&
-         $filelabel -> configure( -text => "Output File: $lwd")})
-      -> grid( -row => 3, -column => 2, -padx => 5 );
-  }
-  my $aqb = $aw -> Button( -text => 'Close', -width => 8, -font => $config->{menufont},
-	 -command => sub{$aw -> WmDeleteWindow} )
-    -> grid( -row => 3, -column => 3, -pady => 5 );
-
-  if ($wherefrom eq 'main') {
-    &watchcursor( $mw );
-    &list_attachments( $al, $messagefile );
-    if ($al -> curselection ne '') {
-      $filelabel -> configure( -text => "$workingdir/".
-			       ($al -> get( $al -> curselection )) );
-    }
-    &defaultcursor( $mw );
-  } elsif ($wherefrom eq 'compose') {
-    foreach (@attachments) {
-      $al -> insert( 'end', $_ ) if length $_;
-    }
-  }
-}
-
-sub remove_attachment {
-  my ($mw) = @_;
-  my (@newattachments, $selected);
-  my $l = $mw -> Subwidget('attachmentlist');
-  if( $l -> curselection ne '' ) {
-    $selected = $l -> get( $l -> curselection );
-    $l -> delete( $l -> curselection );
-    foreach( @attachments ) {
-      push @newattachments, ($_) unless $_ eq $selected;
-    }
-    $#attachments = 0;
-    foreach (@newattachments) {
-      push @attachments, ($_);
-    }
-  }
-}
-
-sub attach_file {
-  my ($mw,$dir) = @_;
-  my $l = $mw -> Subwidget('attachmentlist');
-  my $afd = $mw -> SimpleFileSelect( -title => $dir );
-  my $resp = $afd -> Show;
-  chomp $resp;
-  if( -f $resp ) {
-    push @attachments, ($resp);
-    $l -> insert( 'end', $resp );
-  }
-}
-
-sub list_attachments {
-  my($lb, $message) = @_;
-  my (@filenames, @contents, $line);
-  eval {
-    @contents = content("$currentfolder/$message");
-    @filenames = grep /filename=/i, @contents;
-    foreach $line (@filenames) {
-      $line =~ s/.*\"(.*)\"/\1/;
-      $lb -> insert ('end', $line);
-    }
-  };
-}
-
-sub save_attachment {
-  my ($mw,$msg) = @_;
-  my $l = $mw -> Subwidget( 'attachmentlist' );
-  return if $l -> curselection eq '';
-  my (@contents,$attachment,$afilename,$boundary,$cstr);
-  &watchcursor( $mw );
-  eval {
-     $afilename = $l -> get( $l -> curselection );
-     @contents = content("$currentfolder/$msg");
-     $cstr = content_as_str("$currentfolder/$msg");
-     $boundary = '--'.boundary(@contents);
-     $cstr =~ /filename\=\"$afilename\".*?\n\n(.*?)$boundary/ism;
-     $attachment = $1;
-     my $decoded = &decode64 ($attachment);
-     if( -f $afilename ) {
-       require Tk::Dialog;
-       my $ed = $mw -> Dialog( -title => 'Save Attachment',
-	-text => "File $afilename exists.\nOverwrite?",-bitmap => 'question',
-	-font => $config->{menufont},-buttons => ['Yes', 'No'],
-        -default_button => 'Yes' );
-       my $resp = $ed -> Show;
-       return if $resp !~ /Yes/;
-     }
-     open OUTPUT, ">$afilename" or
-       warn "Couldn't write $afilename: $!\n";
-     print OUTPUT $decoded;
-     close OUTPUT;
-  };
-  &defaultcursor( $mw );
-  return 1;
-}
-
-sub attach_browse {
-  my ($aw) = @_;
-  my $l = $aw -> Subwidget( 'attachmentlist' );
-  my $defaultfile = '';
-  if ($l -> curselection ne '') {
-    $defaultfile = $l -> get( $l -> curselection );
-  }
-  my $afs = $aw -> SimpleFileSelect ( -initialfile => $defaultfile );
-  my $resp = $afs -> Show;
-  return $resp;
-}
-
-sub decode64 {
-  my ($attachstr) = @_;
-  my ($decoded);
-  open OUT, ">/tmp/ecattach$$" or
-    warn "Couldn't write temporary input file for decoding: $!\n";
-  print OUT $attachstr;
-  close OUT;
-  open DECODE, "$base64enc \-d \-b \</tmp/ecattach$$ |"
-    or warn "Couldn't decode attachment: $!\n";
-  while ( <DECODE> ) { $decoded .= $_ }
-  close DECODE;
-  unlink "/tmp/ecattach$$";
-  return $decoded;
-}
-
-sub boundary {
-  my (@txt) = @_;
-  my @boundary = grep /boundary=/i, @txt;
-  return '' if not defined $boundary[0];
-  $boundary[0] =~ s/.*boundary=\"(.*)\".*/\1/i;
-  return $boundary[0];
+  my $a = $mw -> Attachment_Dialog (-font => $config->{menufont},
+				    -caller => $wherefrom, 
+				    -file => $messagefile,
+				    -folder => $currentfolder );
+  @attachments = $a -> Show;
+  foreach (@attachments) { print "$_\n" };
 }
 
 sub content {
@@ -2021,7 +1834,7 @@ sub content {
 }
 
 sub content_as_str {
-  return join "\n", &content(@_);
+   return join "\n", &content(@_);
 }
 
 sub watchcursor {
@@ -2043,6 +1856,7 @@ sub browse_url {
   ($line,$col) = split /\./, ($mw->Subwidget('text')->index('insert'));
   $cline = $mw->Subwidget('text')-> get( "$line\.0", "$line\.end");
   ($url) = ($cline =~ /(http\S*)/i);
+  $url = '' if (not defined $url);
   my $dialog = $mw -> DialogBox( -title => 'Open URL',
 			       -buttons => ['Ok', 'Cancel'],
 			       -default_button => 'Ok');
@@ -2052,7 +1866,7 @@ sub browse_url {
   return if $dialog -> Show !~ /Ok/;
   my ($bname, $lockfile, $bcommand, $bpid);
   my $bname = $config->{browser};
-  $bhandle = Tk::IO -> new( -linecommand => sub{}, -callback => sub{} );
+  $bhandle = Tk::IO -> new (-linecommand => sub{}, -callback => sub{});
   if ($bname =~ /netscape/) {
     $lockfile = "$ENV{HOME}/.netscape/lock" if $bname =~ /netscape/;
     if ( (-f $lockfile) || (-l $lockfile) ) {
@@ -2072,7 +1886,7 @@ sub browse_url {
 sub deletetrashfolder {
   my ($mw) = @_;
   eval {
-    &watchcursor($mw);
+    &watchcursor ($mw);
     require Tk::Dialog;
     my $trashdir = $config->{trashdir};
     my $dialog = $mw -> Dialog( -title => "Empty Trash",
@@ -2088,12 +1902,11 @@ sub deletetrashfolder {
       unlink "$trashdir/.index" if -f "$trashdir/.index";
     }
   };
-  &defaultcursor($mw);
+  &updatemsgcount ($mw, $config->{trashdir});
+  &defaultcursor ($mw);
 }
 
 require "getopts.pl";
-
-$config = &EC::Config::new ($cfgfilename);
 
 $opt_errs = &Getopts("f:dhkvo");
 if ($opt_h || !$opt_errs) {
@@ -2132,10 +1945,6 @@ if ($opt_o) {
 chop( $ARCH = `uname`);
 $LINUX = 1 if $ARCH eq "Linux";
 
-$SIG{'INT'} = 'die_gracefully';
-$SIG{'QUIT'} = 'die_gracefully';
-$SIG{'TERM'} = 'die_gracefully';
-
 $LFILE = "/tmp/popm.$UID";
 
 #Perl 5 - have to set PATH to known value - security feature
@@ -2147,8 +1956,12 @@ $lsites = &get_user_info;
 #
 # Initialize main window widgets.
 #
-my $mw = new MainWindow( -title => "Email Client");
-my $l = $mw -> Scrolled( 'MessageList',
+sub init_main_widgets {
+    my $mw = new MainWindow( -title => "Email Client");
+    my $mb = &init_main_menu ($mw);
+    $mb -> pack( -anchor => 'w', -fill => 'x' );
+ 
+    my $l = $mw -> Scrolled( 'MessageList',
 	 -height => 7,
 	 -selectmode => 'single',
 	 -bd => 2, -relief => sunken,
@@ -2177,141 +1990,202 @@ my $l = $mw -> Scrolled( 'MessageList',
 		      -font => $config->{textfont},
 		      -background => 'white',
 		      -textwidth => 80 ]]);
-$mw -> Advertise( 'messagelist' => $l );
-$l -> {'ml_sort_descending'} = $config->{sortdescending};
-$datesortorder = $config->{sortdescending};
+    $l -> Subwidget('yscrollbar') -> configure(-width=>10);
+    $l -> Subwidget('xscrollbar') -> configure(-width=>10);
+    $l -> pack( -expand => '1', -fill => 'both', -anchor => 'w'  );
+    $mw -> Advertise( 'messagelist' => $l );
+    $l -> {'ml_sort_descending'} = $config->{sortdescending};
+    $datesortorder = $config->{sortdescending};
+    $l -> bindColumns ( '<Button-1>', sub{&sort_column} );
+    $l -> bindRows( '<Button-1>', sub{ displaymessage( $mw, $currentfolder )});
 
-my $t = $mw -> Scrolled( 'TextUndo', -height => 20,
-	 -scrollbars => 'se',
+    my $c = &init_button_bar ($mw);
+    $mw -> Advertise ('button_bar' => $c);
+    $c -> pack( -expand => '1', -fill => 'x' );
+
+    my $t = $mw -> Scrolled( 'TextUndo', -height => 20,
+	 -scrollbars => 'osoe',
 	 -wrap => 'word',
 	 -background => 'white',
 	 -font => $config->{textfont},
 	 -wrap => 'word',
 	 -width => 80 );
-$mw -> Advertise( 'text' => $t );
-$t -> tagConfigure( 'header', -font => $config->{headerfont} );
-my $c = $mw -> Canvas( -height => 40, -width => 600 );
-$mw -> Advertise( 'canvas' => $c );
-my $msgcounter = $c -> createText( 500, 15, -font => $config->{menufont},
+    $mw -> Advertise( 'text' => $t );
+    $t -> tagConfigure( 'header', -font => $config->{headerfont} );
+    $t -> Subwidget('yscrollbar') -> configure(-width=>10);
+    $t -> Subwidget('xscrollbar') -> configure(-width=>10);
+    $t -> pack( -expand => '1', -fill => 'both' );
+    # Unbind the text widget's popup menu
+    $mw -> bind('Tk::TextUndo','<3>', '' );
+
+    &standard_keybindings ($mw);
+
+    $mw -> bind( '<Alt-s>', sub{ SaveFileAsDialog($mw) } );
+    $mw -> bind( '<Alt-d>', sub{ movemesg( $mw, $config->{trashdir} ) } );
+    $mw -> bind( '<Alt-n>', sub{ compose( $mw ) } );
+    $mw -> bind( '<Alt-r>', sub{ reply( $mw ) } );
+    $mw -> bind( '<Alt-o>', sub{ incoming_poll($mw,$lsites)});
+    $mw -> bind( '<F1>', sub{ &self_help });
+    $mw -> bind( '<Alt-e>', sub{ &browse_url( $mw )});
+    $mw -> bind( '<Alt-Up>', sub{&previous_message( $mw )});
+    $mw -> bind( '<Alt-Down>', sub{&next_message( $mw )});
+
+    return $mw;
+}
+
+sub init_button_bar {
+    my ($mw) = @_;
+    my $c = $mw -> Canvas( -height => 40, -width => 600 );
+    $mw -> Advertise( 'button_bar' => $c );
+
+    my $deletebutton = $mw -> Button( -text => 'Delete',
+				  -font => $config->{menufont},
+				  -width => 8,
+				  -underline => 0,
+		  -command => sub{ movemesg( $mw, $config->{trashdir} )});
+    my $newbutton = $mw -> Button( -text => 'New',
+				  -font => $config->{menufont},
+				-width => 8,
+				-underline => 0,
+				  -command => 
+			       sub{ compose( $mw ) } );
+    my $replybutton = $mw -> Button( -text => 'Reply',
+				  -font => $config->{menufont},
+				-width => 8,
+				-underline => 0,
+			  -command => sub{ reply( $mw ) } );
+
+    my $dcanv = $c -> createWindow( 55, 18, -window => $deletebutton );
+    my $ncanv = $c -> createWindow( 137, 18, -window => $newbutton );
+    my $rcanv = $c -> createWindow( 219, 18, -window => $replybutton );
+
+    my $msgcounter = $c -> createText( 500, 15, -font => $config->{menufont},
 			       -text => $countertext,
 			       -justify => 'right' );
-$mw -> Advertise( 'msgcounter' => $msgcounter );
+    $mw -> Advertise( 'msgcounter' => $msgcounter );
 
-my $servermsg = $c -> createText( 500, 30, -font => $config->{menufont},
+    my $servermsg = $c -> createText( 500, 30, -font => $config->{menufont},
 				  -text => '',
 				  -justify => 'right' );
-$mw -> Advertise( 'servermsg' => $servermsg );
-my $mb = $mw -> Menu( -type => 'menubar', -font => $config->{menufont} );
-my $filemenu = $mb -> Menu;
-my $editmenu = $mb -> Menu;
-my $messagemenu = $mb -> Menu;
-my $foldermenu = $mb -> Menu;
-$mw -> Advertise( 'foldermenu' => $foldermenu );
-my $destfoldermenu = $mb -> Menu;
-$mw -> Advertise( 'destfoldermenu' => $destfoldermenu );
-my $optionmenu = $mb -> Menu;
-my $helpmenu = $mb -> Menu;
-my $headerviewmenu = $mb -> Menu;
-my $sortfieldmenu = $mb -> Menu;
-my $sortordermenu = $mb -> Menu;
-$mb -> add( 'cascade', -label => 'File', -menu => $filemenu );
-$mb -> add( 'cascade', -label => 'Edit', -menu => $editmenu );
-$mb -> add( 'cascade', -label => 'Message', -menu => $messagemenu );
-$mb -> add( 'cascade', -label => 'Folder', -menu => $foldermenu );
-$mb -> add( 'cascade', -label => 'Options', -menu => $optionmenu );
-$mb -> add( 'separator' );
-$mb -> add( 'cascade', -label => 'Help', -menu => $helpmenu );
-$filemenu -> add( 'command', -label => 'Save As...', -state => 'normal',
+    $mw -> Advertise( 'servermsg' => $servermsg );
+
+    return $c;
+}
+
+sub init_main_menu {
+    my ($mw) = @_;
+    my $mb = $mw -> Menu( -type => 'menubar', -font => $config->{menufont} );
+    my $filemenu = $mb -> Menu;
+    my $editmenu = $mb -> Menu;
+    my $messagemenu = $mb -> Menu;
+    my $foldermenu = $mb -> Menu;
+    $mw -> Advertise( 'foldermenu' => $foldermenu );
+    my $destfoldermenu = $mb -> Menu;
+    $mw -> Advertise( 'destfoldermenu' => $destfoldermenu );
+    my $optionmenu = $mb -> Menu;
+    my $helpmenu = $mb -> Menu;
+    my $headerviewmenu = $mb -> Menu;
+    my $sortfieldmenu = $mb -> Menu;
+    my $sortordermenu = $mb -> Menu;
+    $mb -> add( 'cascade', -label => 'File', -menu => $filemenu );
+    $mb -> add( 'cascade', -label => 'Edit', -menu => $editmenu );
+    $mb -> add( 'cascade', -label => 'Message', -menu => $messagemenu );
+    $mb -> add( 'cascade', -label => 'Folder', -menu => $foldermenu );
+    $mb -> add( 'cascade', -label => 'Options', -menu => $optionmenu );
+    $mb -> add( 'separator' );
+    $mb -> add( 'cascade', -label => 'Help', -menu => $helpmenu );
+    $filemenu -> add( 'command', -label => 'Save As...', -state => 'normal',
 		  -font => $config->{menufont}, -accelerator => 'Alt-S',
 		  -command => sub{ SaveFileAsDialog( $mw ) } );
-$filemenu -> add( 'command', -label => 'Empty Trash...', -state => 'normal',
+    $filemenu -> add( 'command', -label => 'Empty Trash...', -state => 'normal',
 		  -font => $config->{menufont},
 		  -command => sub{ &deletetrashfolder( $mw ) } );
-$filemenu -> add( 'command', -label => 'Attachments...',
+    $filemenu -> add( 'command', -label => 'Attachments...',
 		  -font => $config->{menufont},
 		  -command => sub{ &attachment_dialog( $mw, 'main' ) } );
-$filemenu -> add( 'command', -label => 'Browse URL...',
+    $filemenu -> add( 'command', -label => 'Browse URL...',
 		  -state => 'normal', -font => $config->{menufont},
 		  -accelerator => 'Alt-E',
 		  -command => sub{ &browse_url( $mw )});
-$filemenu -> add( 'separator' );
-$filemenu -> add( 'command', -label => 'Minimize', -state => 'normal',
+    $filemenu -> add( 'separator' );
+    $filemenu -> add( 'command', -label => 'Minimize', -state => 'normal',
 		  -font => $config->{menufont}, -accelerator => 'Alt-Z',
 		  -command => sub{$mw->toplevel->iconify});
-$filemenu -> add( 'command', -label => 'Close', -state => 'normal',
+    $filemenu -> add( 'command', -label => 'Close', -state => 'normal',
 		  -font => $config->{menufont}, -accelerator => 'Alt-W',
 		  -command => sub{ quitclient( $mw ) } );
 
-&EditMenuItems($editmenu,($mw -> Subwidget('text')));
-$messagemenu -> add( 'command', -label => 'Check Server for Messages',
+    &EditMenuItems($editmenu,($mw -> Subwidget('text')));
+    $messagemenu -> add( 'command', -label => 'Check Server for Messages',
 		     -state => 'normal',
 		  -font => $config->{menufont}, -accelerator => 'Alt-O',
 	  -command => sub{ incoming_poll( $mw,$lsites)});
-$messagemenu -> add( 'separator' );
-$messagemenu -> add( 'command', -label => 'Compose New Message',
+    $messagemenu -> add( 'separator' );
+    $messagemenu -> add( 'command', -label => 'Compose New Message',
 		     -state => 'normal',
 		  -font => $config->{menufont}, -accelerator => 'Alt-N',
 		  -command => sub{ &compose});
-$messagemenu -> add( 'command', -label => 'Reply', -state => 'normal',
+    $messagemenu -> add( 'command', -label => 'Reply', -state => 'normal',
 		  -font => $config->{menufont}, -accelerator => 'Alt-R',
 		  -command => sub{reply( $mw )});
-$messagemenu -> add( 'command', -label => 'Delete', -state => 'normal',
+    $messagemenu -> add( 'command', -label => 'Delete', -state => 'normal',
 		  -font => $config->{menufont}, -accelerator => 'Alt-D',
 		  -command => sub{ movemesg( $mw, $config->{trashdir} )});
-$messagemenu -> add( 'separator' );
-$messagemenu -> add( 'command', -label => 'Next Message', -state => 'normal',
+    $messagemenu -> add( 'separator' );
+    $messagemenu -> add( 'command', -label => 'Next Message', -state => 'normal',
 		     -font => $config->{menufont}, -accelerator => 'Alt-Down',
 		     -command => sub{ next_message( $mw )});
-$messagemenu -> add( 'command', -label => 'Previous Message',
+    $messagemenu -> add( 'command', -label => 'Previous Message',
 		     -state => 'normal',
 		     -font => $config->{menufont}, -accelerator => 'Alt-Up',
 		     -command => sub{ previous_message( $mw )});
-$messagemenu -> add( 'separator' );
-foreach my $fn (@{$config->{folder}}) {
-  my $dirname = $fn;
-  $dirname =~ s/.*\/(.*?)$/\1/;
-  $destfoldermenu -> add( 'command',-label => ucfirst $dirname,
-	      -state => 'normal', -font => $config->{menufont},
-	      -command => sub{ movemesg($mw, $fn)});
-  $foldermenu -> add( 'command',-label => ucfirst $dirname,
-	      -state => 'normal', -font => $config->{menufont},
-	      -command => sub{ changefolder($mw, $fn)});
-}
-$destfoldermenu -> insert( 3, 'separator' );
-$foldermenu -> insert( 3, 'separator' );
-$messagemenu -> add( 'cascade', -label => 'Move To',  -state => 'normal',
+    $messagemenu -> add( 'separator' );
+    foreach my $fn (@{$config->{folder}}) {
+	my $dirname = $fn;
+	$dirname =~ s/.*\/(.*?)$/\1/;
+	$destfoldermenu -> add( 'command',-label => ucfirst $dirname,
+			-state => 'normal', -font => $config->{menufont},
+				-command => sub{ movemesg($mw, $fn)});
+	$foldermenu -> add( 'command',-label => ucfirst $dirname,
+		    -state => 'normal', -font => $config->{menufont},
+		    -command => sub{ changefolder($mw, $fn)});
+    }
+    $destfoldermenu -> insert( 3, 'separator' );
+    $foldermenu -> insert( 3, 'separator' );
+    $messagemenu -> add( 'cascade', -label => 'Move To',  -state => 'normal',
 		  -font => $config->{menufont},
 		  -menu =>  $destfoldermenu);
-$optionmenu -> add( 'cascade', -label => 'View Headers', -state => 'normal',
+    $optionmenu -> add( 'cascade', -label => 'View Headers', -state => 'normal',
 		  -font => $config->{menufont},
 		  -menu =>  $headerviewmenu);
-$optionmenu -> add( 'cascade', -label => 'Sort by', -state => 'normal',
+    $optionmenu -> add( 'cascade', -label => 'Sort by', -state => 'normal',
 		  -font => $config->{menufont},
 		  -menu =>  $sortfieldmenu);
-$optionmenu -> add( 'cascade', -label => 'Sort Order', -state => 'normal',
+    $optionmenu -> add( 'cascade', -label => 'Sort Order', -state => 'normal',
 		  -font => $config->{menufont},
 		  -menu => $sortordermenu);
-$helpmenu -> add( 'command', -label => 'About...', -state => 'normal',
+    $helpmenu -> add( 'command', -label => 'About...', -state => 'normal',
 		  -font => $config->{menufont},
 		  -command => sub{ &about( $mw ) } );
-$helpmenu -> add( 'separator' );
-$helpmenu -> add( 'command', -label => 'Help...', -state => 'normal',
+    $helpmenu -> add( 'separator' );
+    $helpmenu -> add( 'command', -label => 'Help...', -state => 'normal',
 		  -font => $config->{menufont}, -accelerator => 'F1',
 		  -command => sub{ &self_help } );
-$helpmenu -> add( 'command', -label => 'Sample .ecconfig File...',
+    $helpmenu -> add( 'command', -label => 'Sample .ecconfig File...',
  		  -state => 'normal',
 		  -font => $config->{menufont},
 		  -command => sub{ &sample('ecconfig') } );
-$headeritems = HeaderViews( $mw );
-$headerviewmenu -> AddItems( @$headeritems );
-$headerviewmenu -> configure( -font => $config->{menufont} );
-$sortfielditems = SortFields($mw);
-$sortfieldmenu -> AddItems( @$sortfielditems );
-$sortfieldmenu -> configure( -font => $config->{menufont} );
-$sortorderitems = SortOrder($mw);
-$sortordermenu -> AddItems( @$sortorderitems );
-$sortordermenu -> configure( -font => $config->{menufont} );
-$mb -> pack( -anchor => 'w', -fill => 'x' );
+    $headeritems = HeaderViews( $mw );
+    $headerviewmenu -> AddItems( @$headeritems );
+    $headerviewmenu -> configure( -font => $config->{menufont} );
+    $sortfielditems = SortFields($mw);
+    $sortfieldmenu -> AddItems( @$sortfielditems );
+    $sortfieldmenu -> configure( -font => $config->{menufont} );
+    $sortorderitems = SortOrder($mw);
+    $sortordermenu -> AddItems( @$sortorderitems );
+    $sortordermenu -> configure( -font => $config->{menufont} );
+    return $mb;
+}
 
 sub HeaderViews {
   my ($w) = @_;
@@ -2357,47 +2231,6 @@ sub SortOrder {
 	   -command => sub{sort_option($w, $config->{sortfield})}]
 	  ];
 }
-
-$l -> pack( -expand => '1', -fill => 'both', -anchor => 'w'  );
-my $deletebutton = $mw -> Button( -text => 'Delete',
-				  -font => $config->{menufont},
-				  -width => 8,
-				  -underline => 0,
-		  -command => sub{ movemesg( $mw, $config->{trashdir} )});
-my $newbutton = $mw -> Button( -text => 'New',
-				  -font => $config->{menufont},
-				-width => 8,
-				-underline => 0,
-				  -command => 
-			       sub{ compose( $mw ) } );
-my $replybutton = $mw -> Button( -text => 'Reply',
-				  -font => $config->{menufont},
-				-width => 8,
-				-underline => 0,
-			  -command => sub{ reply( $mw ) } );
-my $dcanv = $c -> createWindow( 55, 18, -window => $deletebutton );
-my $ncanv = $c -> createWindow( 137, 18, -window => $newbutton );
-my $rcanv = $c -> createWindow( 219, 18, -window => $replybutton );
-$l -> Subwidget('yscrollbar') -> configure(-width=>10);
-$l -> Subwidget('xscrollbar') -> configure(-width=>10);
-$t -> Subwidget('yscrollbar') -> configure(-width=>10);
-$t -> Subwidget('xscrollbar') -> configure(-width=>10);
-$c -> pack( -expand => '1', -fill => 'x' );
-$t -> pack( -expand => '1', -fill => 'both' );
-$l -> bindColumns ( '<Button-1>', sub{&sort_column} );
-$l -> bindRows( '<Button-1>', sub{ displaymessage( $mw, $currentfolder )});
-$mw -> bind('Tk::TextUndo','<3>', '' );
-
-&standard_keybindings ($mw);
-$mw -> bind( '<Alt-s>', sub{ SaveFileAsDialog($mw) } );
-$mw -> bind( '<Alt-d>', sub{ movemesg( $mw, $config->{trashdir} ) } );
-$mw -> bind( '<Alt-n>', sub{ compose( $mw ) } );
-$mw -> bind( '<Alt-r>', sub{ reply( $mw ) } );
-$mw -> bind( '<Alt-o>', sub{ incoming_poll($mw,$lsites)});
-$mw -> bind( '<F1>', sub{ &self_help });
-$mw -> bind( '<Alt-e>', sub{ &browse_url( $mw )});
-$mw -> bind( '<Alt-Up>', sub{&previous_message( $mw )});
-$mw -> bind( '<Alt-Down>', sub{&next_message( $mw )});
 
 sub about {
     my ($mw) = @_;
@@ -2487,17 +2320,15 @@ sub EditMenuItems {
 				 -state => 'normal',
 				 -font => $config->{menufont},
 			 -command => sub{$w -> selectAll} );
-#    $m -> add ('separator');
-#    $m -> add( 'command', -label => 'Search & Replace...',
-#				  -accelerator => 'Alt-F',
-#				 -state => 'normal',
-#				 -font => $config->{menufont},
-#		 -command => sub{$self -> ws_search} );
-#    $m -> add( 'command', -label => 'Repeat Last Search',
-#				 -accelerator => 'Alt-G',
-#				 -state => 'normal',
-#				 -font => $config->{menufont},
-#				 -command => sub{$self -> ws_search_again});
+}
+
+sub fileselect {
+    my $mw = shift;
+    my $ref = shift;
+    if (not defined $ref) {
+	$ref = $mw -> SimpleFileSelect(@_);
+    }
+    return $ref -> Show (@_);
 }
 
 sub InsertFileDialog
@@ -2505,20 +2336,20 @@ sub InsertFileDialog
  my ($w)=@_;
  my $l;
  my $t = $w -> Subwidget( 'text' );
- my $fs = $mw -> SimpleFileSelect( -directory => $config->{maildir},
-			     -initialfile => $subj,
-				 -acceptlabel => 'Insert' );
- my $name = $fs -> Show;
- &watchcursor( $w );
+ my $name = &fileselect ($w, $insertfiledialog, 
+			 -directory => $config->{maildir},
+			 -acceptlabel => 'Insert' );
+ &watchcursor ($w);
  eval {
    if ( defined($name) and length($name)) {
-     $defaultuserdir = $name;
-     $defaultuserdir =~ s/(.*)\/.*?$/\1/;
-     $t -> insert( 'insert', content_as_str( $name ) );
-     return 1;
+       chomp $name;
+       $defaultuserdir = $name;
+       $defaultuserdir =~ s/(.*)\/.*?$/\1/;
+       $t -> insert( 'insert', content_as_str( $name ) );
+       return 1;
    }
  };
- &defaultcursor($w);
+ &defaultcursor ($w);
  return 0;
 }
 
@@ -2529,24 +2360,22 @@ sub SaveFileAsDialog
  my $l = $mw -> Subwidget( 'messagelist' );
  my $selindex = ($l->curselection)[0];
  my $msg = $text -> get( '1.0', 'end' );
- $subj =~ s/.*Subject:\s?(.*?)$/\1/sm;
- my $fs = $mw -> SimpleFileSelect( -directory => $defaultuserdir,
-			     -initialfile => $subj,
-				 -acceptlabel => 'Save' );
- my $name = $fs -> Show;
+ my $name = &fileselect ($mw, $savefiledialog,
+			 -acceptlabel => 'Save');
  $l -> selectionSet( $selindex, $selindex ) if $selindex ne '';
  if ( defined($name) and length($name)) {
-   &watchcursor($mw);
-   eval {
-     $defaultuserdir = $name;
-     $defaultuserdir =~ s/(.*)\/.*?$/\1/;
-     open SAVE, "+>>$name" or
-       warn "Can't save message to file $name: $!\n";
-     print SAVE $msg;
-     close SAVE;
-     return 1;
-   };
-   &defaultcursor($mw);
+     chomp $name;
+     &watchcursor ($mw);
+     eval {
+	 $defaultuserdir = $name;
+	 $defaultuserdir =~ s/(.*)\/.*?$/\1/;
+	 open SAVE, "+>>$name" or
+	     warn "Can't save message to file $name: $!\n";
+	 print SAVE $msg;
+	 close SAVE;
+	 return 1;
+     };
+     &defaultcursor ($mw);
  }
  return 0;
 }
@@ -2579,17 +2408,20 @@ sub wm_update {
 sub timer_update {
   my ($mw) = @_;
   return if not defined $mw;
-  $mw -> update;
   Tk::Event::DoOneEvent(255);
+  $mw -> update;
 }
 
 if (! $config->{offline}) {
-  $l -> after( 100, sub{ &interval_poll($mw,$lsites) } )
+  $mw -> repeat (100,sub{&timer_update( $mw )});
+  $mw -> Subwidget ('messagelist') 
+      -> after( 100, sub{ &interval_poll($mw,$lsites) } )
     if $config->{pollinterval};
-  $mw -> after(100,sub{&timer_update( $mw )});
-}
-foreach my $f (@{$config->{folder}}) {
-    &updatemsgcount($mw,$f);
+} else { # update message list without calling visit_sites
+         # or interval_poll.
+    &updatemsgcount($mw,$_) foreach (@{$config->{folder}});
+    &listmailfolder ($mw -> Subwidget ('messagelist'), 
+		     $config->{incomingdir});
 }
 
 MainLoop;
@@ -2626,7 +2458,6 @@ Print verbose transcript of dialogs with servers.
 =item -d
 
 Print debugging information on the terminal.
-
 
 =item -o
 
@@ -2982,7 +2813,7 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  $Id: ec,v 0.96 2001/08/08 21:46:23 kiesling Exp $
+  $Id: ec,v 0.98 2001/09/12 16:09:41 kiesling Exp $
 
 =head1 CREDITS
 
