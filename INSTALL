@@ -81,16 +81,15 @@ TROUBLESHOOTING
 
 1. Setting the Location of the Perl Interpreter
 
-  If you try to execute ec and recieve an error message like 
-  this:
+  If you try to run ec and get an error message like this:
 
     bash: ./ec: No such file or directory
 
   Then you need to edit the first line of the file to give
   the path to the perl interpreter on your system.  Usually
-  this is /usr/local/bin/perl (the default in the distributed 
-  program), or /usr/bin/perl.  If neither of these work, try
-  using the output of the command: "which perl".
+  this is /usr/bin/perl (the default in the distributed 
+  program), or /usr/local/bin/perl.  If neither of these work, 
+  try using the output of the command: "which perl".
 
 2. Configuring for Solaris and SunOS Systems
 

@@ -133,7 +133,7 @@ sub content {
     open FILE, $file or
       die "Couldn't open $file: ".$!."\n";
     while (defined ($l=<FILE>)) {
-      chop $l;
+      chomp $l;
       push @contents, ($l);
     }
     close FILE;

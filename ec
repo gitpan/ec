@@ -1,5 +1,5 @@
-#!/usr/local/bin/perl 
-my $RCSRevKey = '$Revision: 1.7 $';
+#!/usr/bin/perl 
+my $RCSRevKey = '$Revision: 1.14 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
 
@@ -11,6 +11,7 @@ use Tk::TextUndo;
 use Tk::SimpleFileSelect;
 use EC::Config;
 use Tk::Listbox;
+use Tk::ECWarning;
 
 #
 #  Path names for library files.  Edit these for your configuration.
@@ -22,8 +23,7 @@ $cfgfilename = &expand_path('~/.ec/.ecconfig');
 # Server authorization file.
 $serverfilename = &expand_path('~/.ec/.servers');
 
-$headerid = 
-"X-Mailer: EC E-Mail Client Version $VERSION";
+$headerid = "X-Mailer: EC E-Mail Client Version $VERSION";
 
 my $datesortorder;
 # Default directory for user's file opens and saves.
@@ -38,6 +38,7 @@ my $mw = &init_main_widgets;
 #   Dialog Boxes
 my $savefiledialog = undef;  # File save dialogs
 my $insertfiledialog = undef;  
+my $warndialog = undef;
 
 ##
 ##  The following code is for Socket stuff.
@@ -55,7 +56,10 @@ my $countertext = '0 Messages';
 # Message ID sequence counter.
 my $msgsequence = 1;
 
-my @sortedmessages = (); # headers after being sorted;
+# my @sortedmessages = (); # headers after being sorted;
+
+my $sortedmessages;  # Pointer to sorted header array.
+
 
 # Message header fields.
 my $fromfield = "From:";
@@ -93,9 +97,6 @@ $localuser =~ /(.*)/;
 $username = $ENV{LOGNAME};
 
 sub sock_close_on_err {
-    local ($msg) = @_;
-    print STDERR "An error occurred: $msg\n";
-    print STDERR "Resetting.\n";
     print "<<<RSET\n" if ($config->{verbose});
     print SOCK "RSET\r\n";
     print "<<<QUIT\n" if ($config->{verbose});
@@ -111,7 +112,8 @@ sub close_server {
 	print SOCK "QUIT\r\n";
 	($status, $smsg) = &pop_ack ();
 	if ($status ne "OK") {
-	    &sock_close_on_err ($smsg);
+	    print "<<<$smsg" if ($config -> {verbose}) and defined $status;
+	    &sock_close_on_err;
 	}
 	close SOCK;
     }
@@ -137,10 +139,8 @@ sub openserver {
     eval {
 	alarm ($config->{servertimeout});
 	print "gethostbyname..." if $config->{debug};
-	no warnings; # turn off unused variable warnings
 	($name, $aliases, $type, $len, $iaddr) = 
 	    gethostbyname ($remote);
-	use warnings;
 	print "done\n" if $config->{debug};
 	alarm( 0 );
     };
@@ -167,7 +167,7 @@ sub openserver {
 	alarm ($config->{servertimeout});
 	print "socket..." if $config->{debug};
 	socket (SOCK, $AF_INET, $SOCK_STREAM, $proto) ||
-	    die "Can't open socket: $!\n";
+	    &server_error_dialog ($w, $port, "Can\'t open socket: $!\n");
 	print "done\n" if $config->{debug};
 	alarm (0);
     };
@@ -311,7 +311,7 @@ sub openserver {
 	    print "$status\n" if ($config->{verbose}) and defined $status;
 	    while ($status !~ /^25/) {
 		&close_server;
-		server_error_dialog ($w, $port,
+		&server_error_dialog ($w, $port,
   "SMTP: \'RCPT TO: <$forwardpath>' error. Server said: $status ... resetting.\n");
 		if (! defined ($status = &smtpack)) {
 		    print 
@@ -327,8 +327,7 @@ sub openserver {
     if ($port ne 25) {
 	($status, $smsg) = &pop_ack ();
 	if ($status ne "OK") {
-	    &server_error_dialog ($w, $port, 
-				  "Authorization error: $remote.");
+	    &server_error_dialog ($w, $port, "Authorization error: $remote.");
 	    $errcode = 'auth';
 	    $err = undef;
 	    return $err;
@@ -337,8 +336,7 @@ sub openserver {
 	print SOCK "USER $user\r\n";
 	($status, $smsg) = &pop_ack ();
 	if ($status ne "OK") {
-	    &server_error_dialog ($w, $port, 
-				  "Authorization error: $remote.");
+	    &server_error_dialog ($w, $port, "Authorization error: $remote.");
 	    $errcode = 'auth';
 	    goto CLOSE_SERVER;
 	}
@@ -346,8 +344,7 @@ sub openserver {
 	print SOCK "PASS $passwd\r\n";
 	($status, $smsg) = &pop_ack ();
 	if ($status !~ /OK/) {
-	    &server_error_dialog ($w, $port, 
-				  "Authorization error: $remote.");
+	    &server_error_dialog ($w, $port, "Authorization error: $remote.");
 	    $errcode = 'auth';
 	    $err = undef;
 	    return $err;
@@ -372,11 +369,9 @@ sub addressees {
     my (@addressees, @addressees2);
     $msg =~ /^To:\s+(.*?)$/smi;
     @addressees = split /, */, $1;
-    pos $msg = 0;
     if ($msg =~ /^Cc:\s+(.*?)$/smi) {
 	local @ccaddresses = split /, */, $1;
 	push @addressees, @ccaddresses;
-	pos $msg = 0;
     }
     if ($msg =~ /^Bcc:\s+(.*?)$/smi) {
 	local @bccaddresses = split /, */, $1;
@@ -532,61 +527,73 @@ sub retrieve {
 	    print SOCK "DELE $msgnum\r\n";
 	    ($status, $smsg) = &pop_ack ();
 	    if ($status ne "OK") {
-		# &sock_close_on_err ($smsg);
+		# &sock_close_on_err;
 	    }
 	}
     }
 
     $mailfile = ((defined $ENV{'MAIL'}) ? $ENV{'MAIL'} :
 		 ($config->{mailspooldir}."/" . $localuser));
-    open (MBOX, ">>$mailfile") ||
-	&sock_close_on_err ("Can't open mailbox $mailfile " .
-			   "- some mail is in $tempfile");
-    no warnings; # warnings for fcntl constants
+    open (MBOX, ">>$mailfile") or eval { &sock_close_on_err;
+				    &show_warn_dialog ($mw, $warndialog,
+       -message => "Can\'t open mailbox $mailfile - some mail is in $tempfile") };
     flock (MBOX,LOCK_EX);
-    use warnings;
     # and, in case someone appended
     # while we were waiting...
     seek (MBOX, 0, 2);
     seek (SPOOLOUT,0,0);
     while (<SPOOLOUT>){
-	print MBOX $_ ||
-	    &sock_close_on_err (((defined $local_mailer)
+	print MBOX $_ or eval {
+	    &sock_close_on_err;
+	    local $wmsg = (((defined $local_mailer)
 			? "Can't pipe to local mailer"
 			: "Can't write to mailbox $mailfile")
 		       . "- some mail is in $tempfile");
+	    &show_warn_dialog ($mw, $warndialog, -message => $wmsg);
+	};
     }
     close SPOOLOUT;
     unlink "$tempfile";
-    no warnings; # warnings for fcntl constants
     flock (MBOX,LOCK_UN) unless defined $local_mailer;
-    use warnings;
     close MBOX;
 }
+
 
 sub get_user_info {
     my (%sites);
     if (-f $serverfilename) {
-	open (POPFILE, $serverfilename)
-	    || &sock_close_on_err ("Can't Open $serverfilename file! $!");
+	open (POPFILE, $serverfilename) or eval {
+	    &sock_close_on_err;
+	    &show_warn_dialog ($mw, $warndialog,
+		       -message => "Can't open $serverfilename file! $!");
+	};
 	my ($dev, $ino, $mode, $nlink, $uid, $gid, $rdev, $size,
 	  $atime, $mtime, $ctime, $blksize, $blocks) = stat POPFILE;
 	if ($mode != 0100600) {
-	    &sock_close_on_err 
-		("$serverfilename needs permissions rw-------");
+	    &sock_close_on_err;
+	    &show_warn_dialog ($mw, $warndialog, 
+		-message => "$serverfilename needs permissions rw-------");
 	}
 	my $lineno = 1;
 	while (<POPFILE>) {
 	    next if /^$/;
 	    ($host, $port, $user, $passwd) = split (' ', $_);
-	    print "No password for host $host - skipping.\n" 
+	    &show_warn_dialog ($mw, $warndialog,
+		       -message => "No password for host $host - skipping.")
 		if ($passwd eq '');
-	    print "No hostname in line $lineno of server file - skipping.\n"
+
+	    &show_warn_dialog ($mw, $warndialog,
+	       -message => "No hostname in line $lineno of server file - skipping.")
 		if ($host eq '');
-	    print "No username in line $lineno of server file - skipping.\n"
+
+	    &show_warn_dialog ($mw, $warndialog,
+	       -message => "No username in line $lineno of server file - skipping.")
 		if ($user eq '');
-	    print "No port no. in line $lineno of server file - skipping.\n"
+
+	    &show_warn_dialog ($mw, $warndialog,
+	       -message => "No port no. in line $lineno of server file - skipping.")
 		if ($port eq '');
+
 	    push @{$sites{"sitelist"}},
 	    { 'host' => $host,
 	      'port' => $port,
@@ -595,8 +602,9 @@ sub get_user_info {
 	}
 	close POPFILE;
     } else {
-	print "Server file ".$serverfilename ." not found.\n";
-	print "Please read the file INSTALL.\n";
+	&show_warn_dialog ($mw, $warndialog,
+		   -message => "Server file ".$serverfilename ." not found.\n" .
+			   "Please read the file INSTALL.\n");
 	exit (255);
     }
     if ($config->{debug}) {
@@ -641,24 +649,6 @@ sub visit_sites {
     $c -> dchars ($servermsg, '0', 'end');
 }
 	
-sub format_sender {
-    my ($s) = @_;
-    # Only for standard listbox
-#  if( ( length $s ) < ($config->{senderlen}) ) {
-#    $s .=  substr $padding, 0, ($config->{senderlen}) - length $s;
-#    return $s;
-#  }
-#  if( ( length $s ) > ($config->{senderlen}) ) {
-#    return substr $s, 0, ($config->{senderlen});
-#  }
-    return $s;
-}
-
-sub format_subject {
-    my ($s) = @_;
-    return $s;
-}
-
 sub format_possible_rfcdate {
     my ($s) = @_;
     my ($wday, $day, $mon, $year, $hour, $min, $sec, $tz, $r);
@@ -736,9 +726,7 @@ sub timezone {
     $ntz = '-0700' if $tz =~ /PDT/;
 
     # just return the time if there's no recognizable timezone.
-    if ($ntz !~ /^\+|\-\d\d\d\d/) {
-	return ($day, $mon, $year, $hour, $min, $sec)
-    }
+    return ($day, $mon, $year, $hour, $min, $sec) if ($ntz !~ /^\+|\-\d\d\d\d/);
 
     ($chour,$cmin) = ($ntz =~ /(\d\d)(\d\d)/);
     if ($cmin ne '00') {
@@ -785,7 +773,7 @@ sub rfcdate_compare {
 	    }
 	    return ($b_mno <=> $a_mno);
 	}
-	return ($b_dayz cmp$a_dayz ) if $a_dayz ne $b_dayz;
+	return ($b_dayz cmp $a_dayz ) if $a_dayz ne $b_dayz;
 	return ($b_hourz cmp $a_hourz) if $a_hourz ne $b_hourz;
 	return ($b_minz cmp $a_minz) if $a_minz ne $b_minz;
 	return ($b_secz cmp $a_secz) if $a_secz ne $b_secz;
@@ -859,18 +847,19 @@ sub changefolder {
 sub listmailfolder {
     my ($l, $folder) = @_;
     my (@msgfiles, @msgfilelist, @subjline, @fromline, @dateline);
-    my (@msgtext, $msgid, $listingstatus, $lindex, @findex, $sresult);
+    my (@msgtext, $msgid, $listingstatus, @findex, $sresult);
     my ($listingdate, $listingfrom, $listingsubject, $listingid);
     &watchcursor ($mw);
     eval {
 	$l -> delete (0, 'end');
-	$#sortedmessages = -1;
-	opendir MDIR, $folder or die "Could not open folder $folder: $!\n";
+	$sortedmessages = undef;
+	opendir MDIR, $folder or 
+	    &show_warn_dialog ($mw, $warndialog,
+			       -message => "Could not open folder $folder: $!\n");
 	@msgfiles = grep /[^\.]|[^\.][^\.]/, readdir MDIR;
 	closedir MDIR;
 	foreach $msgid (@msgfiles) {
-	    next if $msgid =~ /\.index/;
-	    next if $msgid eq '';
+	    next if ($msgid =~ /\.index/) or ($msgid eq '');
 	    @msgtext = content ("$folder/$msgid");
 	    @subjline = grep /^Subject: /i, @msgtext;
 	    @fromline = grep /^From: /i, @msgtext;
@@ -879,71 +868,54 @@ sub listmailfolder {
 		chomp $fromline[0];
 		$fromline[0] =~ s/From:\s*//;
 	    } else {
-		$fromline[0] = ' ';
+		$fromline[0] = '';
 	    }
 	    if (strexist ($subjline[0])) {
 		chomp $subjline[0];
 		$subjline[0] =~ s/Subject:\s*//i;
 	    } else {
-		$subjline[0] = ' ';
+		$subjline[0] = '';
 	    }
 	    if (strexist ($dateline[0])) {
 		$dateline[0] =~ s/Date:\s*//i;
-		$dateline[0] =~ s/\n//;
+		chomp $dateline[0];
 	    } else {
-		$dateline[0] = ' ';
+		$dateline[0] = '';
 	    }
-	    push @msgfilelist, 
-	      (&format_possible_rfcdate($dateline[0]).
-	       ' ~~~'.
-	       &format_sender($fromline[0]).' ~~~'.
-	       &format_subject($subjline[0]) . 
-	       " ~~~$msgid" );
+	    my $rfcdate = &format_possible_rfcdate ($dateline[0]);
+	    # Push array reference.
+	    push @msgfilelist, [$rfcdate,$fromline[0],$subjline[0], $msgid];
 	}
 	if ($config->{sortfield} =~ /1/) { # sort by date
 	    @sortedmessages = sort {
-		$a =~ /^(.*?)\s~~~/; my $a1 = $1;
-		$b =~ /^(.*?)\s~~~/; my $b1 = $1;
-		if ( length $a1 and  length $b1 ) {
-		    &rfcdate_compare($a1,$b1);
-		}
+		&rfcdate_compare (${$a}[0], ${$b}[0])
+	           if ( length ${$a}[0] and  length ${$b}[0] );
 	    } @msgfilelist;
 	} elsif ($config->{sortfield} =~ /2/) { # sort by sender
 	    @sortedmessages = sort {
-		$a =~ /^.*?~~~(.*?)~~~/; $a1 = $1;
-		$b =~ /^.*?~~~(.*?)~~~/; $b1 = $1;
-		($l -> {ml_sort_descending}) ? $b1 cmp $a1 : $a1 cmp $b1 ;
+		($l -> {ml_sort_descending}) ? ${$b}[1] cmp ${$a}[1] : $a1 cmp ${$b}[1];
 	    } @msgfilelist;
 	} elsif ($config->{sortfield} =~ /3/) { # sort by subject
 	    @sortedmessages = sort {
-		$a =~ /^.*?~~~.*?~~~(.*?)~~~/; $a1 = $1;
-		$b =~ /^.*?~~~.*?~~~(.*?)~~~/; $b1 = $1;
-		($l -> {ml_sort_descending}) ? $b1 cmp $a1 : $a1 cmp $b1 ;
+		($l -> {ml_sort_descending}) ? 
+		    ${$b}[1] cmp ${$a}[1] : ${$a}[1] cmp ${$b}[1] ;
 	    } @msgfilelist;
 	} else { # don't sort
 	    push @sortedmessages, @msgfilelist;
 	}
 
-	if (-f "$folder/.index") {
-	    @findex = content ("$folder/.index");
-	}
-	foreach (@sortedmessages ) {
-	    ($listingdate,$listingfrom,$listingsubject,$listingid) = 
-		split /~~~/, $_;
-	    $listingstatus = '';
-	    $sresult = grep /$listingid/, @findex;
-	    if (! $sresult) {
-		$listingstatus .= 'u';
-	    }
-	    if ($config->{weekdayindate} =~ /0/) {
-		$listingdate =~ s/^\w\w\w\, //;
-	    }
+        @findex = content ("$folder/.index") if (-f "$folder/.index");
+
+	foreach my $hdr (@sortedmessages ) {
+	    $sresult = grep /${$hdr}[3]/, @findex;
+	    $listingstatus = 'u' unless $sresult;
+	    ${$hdr}[0] =~ s/^\w\w\w\, // if ($config->{weekdayindate} =~ /0/);
 	    my $lline = &strfill ($listingstatus, 2);
-	    $lline .= ' ' . &strfill ($listingdate, $config -> {datewidth});
-	    $lline .= '  ' . &strfill ($listingfrom, $config -> {senderwidth});
-	    $lline .= '  ' . &strfill ($listingsubject, 45);
+	    $lline .= ' ' . &strfill (${$hdr}[0], $config -> {datewidth});
+	    $lline .= '  ' . &strfill (${$hdr}[1], $config -> {senderwidth});
+	    $lline .= '  ' . &strfill (${$hdr}[2], 45);
 	    $l -> insert ('end', $lline);
-	}
+        }
     }; # eval
     &defaultcursor ($mw);
 }
@@ -1000,8 +972,19 @@ sub movemail {
 	while (-e "$filterfolder/$$-$msgsequence") {
 	    $msgsequence++;
 	}
-	open MSG, ">$filterfolder/$$-$msgsequence" or
-	    print "Couldn't save message in $filterfolder: $!.\n";
+
+	open MSG, ">$filterfolder/$$-$msgsequence" or eval {
+	    &show_warn_dialog ($mw, $warndialog,
+		       -message => "Couldn't save message in $filterfolder: $!." .
+		       "Saving message in " . $config->{incomingdir} . "\n");
+	    close MSG;
+	    $filterfolder = $config -> {incomingdir};
+	    # Again, avoid existing filenames
+	    while (-e "$filterfolder/$$-$msgsequence") {
+		$msgsequence++;
+	    }
+	    open MSG, ">$filterfolder/$$-$msgsequence";
+	};
 	print MSG $message;
 	close MSG;
 	print STDERR "Saved message $$-$msgsequence\n" if $config->{debug};
@@ -1009,7 +992,8 @@ sub movemail {
     }
     if (! ($config->{debug})  and ! $keepmails) {
 	open MBOX, ">$systemmbox" or
-	    warn "Couldn't empty $systemmbox: $!\n";
+	    &show_warn_dialog ($mw, $warndialog,
+			-message => "Couldn't empty $systemmbox: $!\n");
 	close MBOX;
     }
 }
@@ -1037,8 +1021,7 @@ sub displaymessage {
     &watchcursor ($mw);
     eval {
 	$t -> delete ('1.0', 'end');
-	$msgfile = $sortedmessages[$nrow];
-	$msgfile =~ s/.*\~\~\~//;
+	$msgfile = ${$sortedmessages[$nrow]}[3];
 	$msg = content_as_str ("$msgdir/$msgfile");
 	&addmsgtoindex ($msgfile,$msgdir);
 	&updatemsgcount ($mw, $msgdir);
@@ -1081,7 +1064,8 @@ sub addmsgtoindex {
     my $l;
     if (-f "$folder/.index") {
 	open INDEX, "<$folder/.index" or
-	    warn "Could not open index in $folder: $!\n";
+	    &show_warn_dialog ($mw, $warndialog,
+		       -message => "Could not open index in $folder: $!\n");
 	while (defined ($l = <INDEX>)) {
 	    chomp $l;
 	    if ($l eq $file) {
@@ -1093,7 +1077,8 @@ sub addmsgtoindex {
     }
     #re-open for append
     open INDEX, ">>$folder/.index" or
-	warn "Could not open index in $folder: $!\n";
+	&show_warn_dialog ($mw, $warndialog,
+			   -message => "Could not open index in $folder: $!\n");
     chomp $file;
     print INDEX "$file\n";
     close INDEX;
@@ -1105,7 +1090,8 @@ sub deletemsgfromindex {
     my ($l, $newindex, $deleted);
     if (-f "$folder/.index") {
 	open INDEX, "<$folder/.index" or
-	    warn "Could not open index in $folder: $!\n";
+	    &show_warn_dialog ($mw, $warndialog,
+		       -message => "Could not open index in $folder: $!\n");
 	while (defined ($l = <INDEX>)) {
 	    chomp $l;
 	    next if (! -f "$folder/$l");
@@ -1120,7 +1106,8 @@ sub deletemsgfromindex {
     }
     # open and clobber
     open INDEX, ">$folder/.index" or
-	warn "Could not open new index in $folder: $!\n";
+	&show_warn_dialog ($mw, $warndialog,
+		   -message => "Could not open new index in $folder: $!\n");
     print INDEX $newindex if ((defined $newindex) and (length $newindex));
     close INDEX;
     return $deleted;
@@ -1137,7 +1124,9 @@ sub updatemsgcount {
     $f =~ /.*?([^\/]*)$/;
     $bname = ucfirst $1;
     $findex = $m -> index( $bname );
-    opendir DIR, "$f" or warn "Couldn't open $f: $!\n";
+    opendir DIR, "$f" or 
+	&show_warn_dialog ($mw, $warndialog,
+		   -message => "Couldn't open $f: $!\n");
     @ffiles = grep /^[^\.].*/, readdir DIR;
     $nmsgs = $#ffiles + 1;
     closedir DIR;
@@ -1145,7 +1134,81 @@ sub updatemsgcount {
     my $readed = 0;
     if (-f "$f/.index") {
 	open INDEX, "<$f/.index" or
-	    warn "Could not open $f/.index in updatemsgcount(): $!\n";
+	    &show_warn_dialog ($mw, $warndialog,
+	       -message => "Could not open $f/.index in updatemsgcount(): $!\n");
+	while (defined ($ff = <INDEX>)) {
+	    chomp $ff;
+	    if (-f "$f/$ff") {$readed++};
+	}
+	close INDEX;
+    }
+    $m -> entryconfigure ($findex,
+		-accelerator => " ".($nmsgs-$readed)."/".$nmsgs." ");
+    $c -> dchars ($msgcounter, 0, length ($countertext));
+    $countertext = $l -> index ('end')." Message";
+    if ($l -> index ('end') != 1) {$countertext .= 's'}
+    $c -> insert ($msgcounter, 1, $countertext);
+}
+
+sub selectallmessages {
+    my ($mw) = @_;
+    my $l = $mw -> Subwidget ('messagelist');
+    $l -> selectionSet(0, $l -> index('end') - 1);
+    &displaymessage ($mw, $currentfolder);
+}
+
+sub deletemsgfromindex {
+    my ($file, $folder) = @_;
+    my @msgs;
+    my ($l, $newindex, $deleted);
+    if (-f "$folder/.index") {
+	open INDEX, "<$folder/.index" or
+	    &show_warn_dialog ($mw, $warndialog,
+		       -message => "Could not open index in $folder: $!\n");
+	while (defined ($l = <INDEX>)) {
+	    chomp $l;
+	    next if (! -f "$folder/$l");
+	    if ($l =~ /$file/) {
+		$deleted = $l;
+		next;
+	    }
+	    chomp $l;
+	    $newindex .= "$l\n";
+	}
+	close INDEX;
+    }
+    # open and clobber
+    open INDEX, ">$folder/.index" or
+	&show_warn_dialog ($mw, $warndialog,
+		   -message => "Could not open new index in $folder: $!\n");
+    print INDEX $newindex if ((defined $newindex) and (length $newindex));
+    close INDEX;
+    return $deleted;
+}
+
+sub updatemsgcount {
+    my ($mw, $folder) = @_;
+    my ($f, $findex, $bname, @ffiles, $unread, $nmsgs );
+    my $l = $mw -> Subwidget ('messagelist');
+    my $c = $mw -> Subwidget ('button_bar');
+    my $m = $mw -> Subwidget ('foldermenu');
+    my $msgcounter = $mw -> Subwidget ('msgcounter');
+    $f = $folder;
+    $f =~ /.*?([^\/]*)$/;
+    $bname = ucfirst $1;
+    $findex = $m -> index( $bname );
+    opendir DIR, "$f" or 
+	&show_warn_dialog ($mw, $warndialog,
+		   -message => "Couldn't open $f: $!\n");
+    @ffiles = grep /^[^\.].*/, readdir DIR;
+    $nmsgs = $#ffiles + 1;
+    closedir DIR;
+    $unread = 0;
+    my $readed = 0;
+    if (-f "$f/.index") {
+	open INDEX, "<$f/.index" or
+	    &show_warn_dialog ($mw, $warndialog,
+	       -message => "Could not open $f/.index in updatemsgcount(): $!\n");
 	while (defined ($ff = <INDEX>)) {
 	    chomp $ff;
 	    if (-f "$f/$ff") {$readed++};
@@ -1179,31 +1242,22 @@ sub movemesg {
 	if ($config->{debug}) { foreach (@selections) { print "$_\n" }}
 	return if $selections[0] eq '';
 	foreach $sel (@selections) {
-	    my $listing = $sortedmessages[$sel];
-	    my ($msgdate, $msgfrom, $msgsub, $omsgfile) =
-		split /\~{3,}/, $listing;
-	    $omsgfile =~ s/.*\~{3,}//;
-	    $nmsgfile = $omsgfile;
-
-#	    print "$listing\n";
-#	    print "$msgdate, $msgfrom, $msgsub, $omsgfile\n";
-
+	    $nmsgfile = $omsgfile = ${$sortedmessages[$sel]}[3];
+            chomp $nmsgfile; chomp $omsgfile;
 	    open INMSG, "<$currentfolder/$omsgfile"
-		or die "Couldn't open message file: $!\n";
+		or &show_warn_dialog ($mw, $warndialog, 
+				      -message => "Couldn\'t open message file: $!\n");
 
-        #    This is a bit ugly - better renaming for duplicate filenames?
-	    while (-e "$dir/$nmsgfile") {
-		$nmsgfile .= '1';
-	    }
+            #    This is a bit ugly - better renaming for duplicate filenames?
+	    $nmsgfile .= '1' while (-e "$dir/$nmsgfile");
 
-	    open OUTMSG, "+>>".$dir."/$nmsgfile"
-		or die "Couldn't open message file: $!\n";
+            open OUTMSG, "+>>".$dir."/$nmsgfile"
+		or &show_warn_dialog ($mw, $warndialog,
+				      -message => "Couldn\'nt open message file: $!\n");
 
-	    while (defined ($il = <INMSG>)) {
-		print OUTMSG $il;
-	    }
+            print OUTMSG $il while (defined ($il = <INMSG>));
 
-	    close INMSG;
+            close INMSG;
 	    close OUTMSG;
 
 	    &deletemsgfromindex ($omsgfile, $currentfolder);
@@ -1212,8 +1266,8 @@ sub movemesg {
 	    unlink ("$currentfolder/$omsgfile");
 
 	    $l -> delete ($sel);
+	} #foreach
 
-	}
 	$t -> delete ('1.0', 'end');
 	&listmailfolder ($l, $currentfolder);
 	if (($selections[0]) >= $l -> index('end')) {
@@ -1235,8 +1289,9 @@ sub emptytrash {
     $expiresafter = ($config->{trashdays}) * 24 * 3600;
     print "emptytrash(): UTC time: $utctime, older than $expiresafter.\n" 
 	if $config->{debug};
-    opendir TRASH, $config->{trashdir}
-        or warn "Could not open ".$config->{trashdir}.": $!\n";
+    opendir TRASH, $config->{trashdir} or 
+	&show_warn_dialog ($mw, $warndialog,
+		   -message => "Could not open ".$config->{trashdir}.": $!\n");
     @files = grep /^[^.]/, readdir TRASH;
     closedir TRASH;
     foreach $f (@files) {
@@ -1315,7 +1370,7 @@ sub sendmsg {
 	print $msghdr if $config->{debug};
 	@hdrlist = split /\n/, $msghdr;
 	foreach $line ( @hdrlist ) { 
-	    ($fcc_file) = ($line =~ s/Fcc //i) if ($line =~ /Fcc:/i);
+	    ($fcc_file) = ($line =~ s/Fcc: //i) if ($line =~ /Fcc:/i);
 	}
 	if ($config->{usesendmail}) {
 	    ($msghdr, $msgtext) = 
@@ -1326,11 +1381,13 @@ sub sendmsg {
 		open MTA, "|".$config->{sendmailprog}." -f ".
 		    $config->{sendmailsetfromaddress}." ".
 			$unfolded_addressees or
-		    warn "Couldn't open ".$config->{sendmailprog}.": $!\n";
+			&show_warn_dialog ($mw, $warndialog,
+		   -message => "Couldn't open ".$config->{sendmailprog}.": $!\n");
 	    } else {
 		open MTA, "|".$config->{sendmailprog}.
 		    " $unfolded_addressees" or
-		warn "Couldn't open ".$config->{sendmailprog}.": $!\n";
+		&show_warn_dialog ($mw, $warndialog,
+		   -messages => "Couldn't open ".$config->{sendmailprog}.": $!\n");
 	    }
 	    print MTA "$msghdr$headerid\n$msgtext\n.\n";
 	    close MTA;
@@ -1344,8 +1401,9 @@ sub sendmsg {
 	    @addressees = &addressees ($msghdr);
 	    my $unfolded_addressees = join ",", @addressees;
 	    open MTA, "|".$config->{qmailinjectpath}." ".
-		$unfolded_addressees or
-	    warn "Couldn't open ".$config->{qmailinjectpath}.": $!\n";
+		$unfolded_addressees or 
+		&show_warn_dialog ($mw, $warndialog,
+                -message => "Couldn't open ".$config->{qmailinjectpath}.": $!\n");
 	    print MTA "$msghdr$headerid\n$msgtext\n.\n";
 	    close MTA;
 	    &write_fcc ($ct->get('1.0','end'))
@@ -1573,7 +1631,9 @@ sub write_fcc {
 	$fccfile = &expand_path ($fccfile);
 	print "writing FCC: $fccfile\n" if $config->{debug};
 	open FCC, "+>> $fccfile"
-	    or warn "Could not open FCC file $fccfile: $!\n";
+	    or 
+	    &show_warn_dialog ($mw, $warndialog,
+               -message => "Could not open FCC file $fccfile: $!\n");
 	print FCC  "\nDate: $dn, $mday $mn $year $hour\:$min\:$sec\r\n";
 	print FCC "$msghdr\n\n$msgtext";
 	close FCC;
@@ -1626,7 +1686,8 @@ sub format_file_attachments {
 
 	push @formatted, ('');
 	open ENC, "$base64enc -e -b <$fullname|" or
-	    warn "Couldn't encode $fullname: $!\n";
+	    &show_warn_dialog ($mw, $warndialog,
+			       -message => "Couldn't encode $fullname: $!\n");
 	while ( defined ($line = <ENC>) ) {
 	    chomp $line;
 	    push @formatted, ($line);
@@ -1895,13 +1956,9 @@ sub content {
     return @contents;
 }
 
-sub content_as_str {
-    return join "\n", &content (@_);
-}
+sub content_as_str { return join "\n", &content (@_) }
 
-sub strexist {
-    return defined $_[0] and length $_[0];
-}
+sub strexist { return defined $_[0] and length $_[0] }
 
 sub watchcursor {
     my ($mw) = @_;
@@ -1944,6 +2001,8 @@ sub browse_url {
     } elsif ($bname =~ /lynx/) {
 	my $xterm = $config->{xterm};
 	$bcommand = "$xterm \-e lynx $url";
+    } elsif ($bname =~ /amaya/) {
+	$bcommand = "amaya $url";
     }
     $bpid = $bhandle -> exec ($bcommand);
 }
@@ -1960,7 +2019,9 @@ sub deletetrashfolder {
 				    -default_button => 'No',
 		-bitmap => 'question', -buttons => ['Yes', 'No'] );
 	return if ($dialog -> Show) eq 'No';
-	opendir MDIR, $trashdir or warn "Could not open $trashdir: $!\n";
+	opendir MDIR, $trashdir or 
+	    &show_warn_dialog ($mw, $warndialog, 
+			       -message => "Could not open $trashdir: $!\n");
 	@trashfiles = grep /[^\.]|[^\.][^\.]/, readdir MDIR;
 	closedir MDIR;
 	foreach (@trashfiles) {
@@ -1976,7 +2037,6 @@ sub deletetrashfolder {
 #  Process command line options
 #
 require "getopts.pl";
-no warnings;  # turn off unused variable warnings.
 $opt_errs = &Getopts("f:dhkvo");
 if ($opt_h || !$opt_errs) {
     print "Usage: ec [-f filename][-hkvo]\n\n";
@@ -1994,7 +2054,6 @@ $config-> {verbose} = 1 if $opt_v;
 $keepmails = 1 if $opt_k;
 $config->{debug} = 1 if $opt_d;
 $config->{offline} = 1 if $opt_o;
-use warnings;
 
 $LFILE = "/tmp/popm.$UID";
 
@@ -2009,35 +2068,6 @@ $lsites = &get_user_info;
 #
 sub init_main_widgets {
     my $mw = new MainWindow( -title => "Email Client");
-#    my $l = $mw -> Scrolled( 'MessageList',
-#         -height => 7,
-#         -bd => 2, -relief => 'sunken',
-#         -selectmode => 'extended',
-#         -width => 80,
-#         -scrollbars => 'se',
-#         -columns => [[-text => 'St',
-#			   -font => $config->{textfont},
-#			   -sortable => 0,
-#			   -background => 'white',
-#			   -textwidth => 2 ],
-#			  [-text => '  Date:',
-#			   -anchor => 'w',
-#			   -font => $config->{textfont},
-#			   -sortable => 0,
-#			   -background => 'white',
-#			   -textwidth => $config->{datelen}],
-#			  [-text => '  From:',
-#			   -anchor => 'w',
-#			   -sortable => 0,
-#			   -font => $config->{textfont},
-#			   -background => 'white',
-#			   -textwidth => $config->{senderlen}],
-#			  [ -text => '  Subject:',
-#			    -anchor => 'w',
-#			    -sortable => 0,
-#			    -font => $config->{textfont},
-#			    -background => 'white',
-#			    -textwidth => 80 ]]);
     my $l = $mw -> Scrolled ('Listbox',
 			     -height => 7,
 			     -bd => 2, 
@@ -2046,7 +2076,7 @@ sub init_main_widgets {
 			     -width => 80,
 			     -font => $config->{textfont},
 			     -background => 'white',
-			     -scrollbars => 'se');
+			     -scrollbars => 'osoe');
     $l -> Subwidget ('yscrollbar') -> configure (-width=>10);
     $l -> Subwidget ('xscrollbar') -> configure (-width=>10);
     $mw -> Advertise ('messagelist' => $l);
@@ -2364,6 +2394,16 @@ sub EditMenuItems {
 	       -command => sub{$w -> selectAll});
 }
 
+sub show_warn_dialog {
+    my $mw = shift;
+    my $ref = shift;
+    if (not defined $ref) {
+	$ref = $mw -> ECWarning (@_);
+    } 
+    $ref -> configure(@_) if $#_;
+    return $ref -> Show (@_);
+}
+
 sub fileselect {
     my $mw = shift;
     my $ref = shift;
@@ -2397,22 +2437,25 @@ sub InsertFileDialog {
 sub SaveFileAsDialog {
     my ($mw)=@_;
     my $text = $mw -> Subwidget ('text');
-    my $l = $mw -> Subwidget ('messagelist');
-    my $selindex = ($l->curselection)[0];
     my $msg = $text -> get ('1.0', 'end');
     my $name = &fileselect ($mw, $savefiledialog,
 			    -acceptlabel => 'Save');
-### Use of uninitialized value in string ne at ./xec line 2420.
-
-    $l -> selectionSet ($selindex, $selindex ) if $selindex ne '';
+    if (-f $name) {
+	my $r = &show_warn_dialog ($mw, $warndialog, 
+           -message => "File $name already exists.  Overwrite it?");
+	return 0 unless $r =~ /Ok/;
+    }
     if (defined($name) and length($name)) {
 	chomp $name;
 	&watchcursor ($mw);
 	eval {
 	    $defaultuserdir = $name;
 	    $defaultuserdir =~ s/(.*)\/.*?$/$1/;
-	    open SAVE, "+>>$name" or
-		warn "Can't save message to file $name: $!\n";
+	    if ( ! open (SAVE, ">$name")) {
+		my $r1 = &show_warn_dialog ($mw, $warndialog, -message => 
+			   "Can\'t save file $name\: $!");
+		return 0;
+	    }
 	    print SAVE $msg;
 	    close SAVE;
 	    return 1;
@@ -2468,7 +2511,7 @@ unlink $LFILE;
 
 =head1 NAME
 
-  ec - UNIX GUI E-mail reader and composer.
+  ec - E-mail reader and composer for Unix and Perl/Tk.
 
 =head1 SYNOPSIS
 
@@ -2605,13 +2648,13 @@ destination folder from the "Message -> Move To" submenu.  If you
 have Motif installed, you can "tear off" the menus so they are
 displayed in a separate window.
 
-The "File -> Browse URL" function pops up a dialog box with the
-URL under the text cursor.  If you click "OK," EC opens the
-browser that is named in the .eccconfig file, and loads the URL.
-If the browser is already open or iconified, EC will use that
-browser window to view the URL. EC supports Netscape 4.5-4.7,
-Opera 5.0, and Lynx in an xterm.  If you select Lynx, you will
-probably also need to set the xterm option in the .ecconfig file.
+The "File -> Browse URL" function pops up a dialog box with the URL
+under the text cursor.  If you click "OK," EC opens the browser that
+is named in the .eccconfig file, and loads the URL.  If the browser is
+already open or iconified, EC will use that browser window to view the
+URL. EC supports Netscape 4.5-4.7, Amaya 2.4, Opera 5.0, and Lynx in
+an xterm.  If you select Lynx, you will probably also need to set the
+xterm option in the .ecconfig file.
 
 The "File -> Attachments" function opens a dialog window to
 save attachments to disk in the main window.  When you select
@@ -2852,16 +2895,13 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  $Id: ec,v 1.7 2001/12/30 00:44:33 kiesling Exp $
+  $Id: ec,v 1.14 2002/03/09 01:01:18 kiesling Exp $
 
 =head1 CREDITS
 
   Written by Robert Kiesling, rkiesling@mainmatter.com
 
   Perl/Tk by Nick Ing-Simmons.
-
-  The MessageList widget is a slight modification of 
-  Tk::MListbox by Hans Jorgen Helgesen.
 
   The POP server interface is based on:
   POPMail Version 1.6 (RFC1081) Interface for Perl,

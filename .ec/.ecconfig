@@ -147,10 +147,19 @@ trashdir trash
 # in 'maildir,' above, must exist.  Case sensitivity of directory names 
 # depends on the operating system.
 #
+folder DDJ
+folder Linux-FAQ
+folder NY_Times
+folder IEntry
+folder ebooks
+folder important
+folder perltk
+folder unix911
+folder zines
 # folder Memos
 # folder E-zines
 # folder Personal
-# Folder Important
+# folder Important
 #
 # File name of on-line documentation
 #
@@ -238,14 +247,14 @@ verbose 0
 #
 # Web browser - Netscape versions 4.x, lynx, and Opera 5.0 are supported.
 # Netscape Version 6 and Mozilla should work but haven't been tested.  
-# The value should be the browser executable program's name. Make sure 
-# the browser program is in one of the directories in $PATH, or 
-# specify the complete path name of the browser program here,
-# for example, /usr/local/netscape/netscape or /usr/X11R6/bin/opera.
-# If the browser is lynx, make sure that the options for xterm, 
-# below, are set correctly.
+# Amaya is tested with version 2.4.  The value should be the browser 
+# executable program's name. Make sure the browser program is in one of 
+# the directories in $PATH, or specify the complete path name of the 
+# browser program here, for example, /usr/local/netscape/netscape or 
+# /usr/X11R6/bin/opera.  If the browser is lynx, make sure that the options 
+# for xterm, below, are set correctly.
 #
-browser netscape
+browser amaya
 #
 # Xterm options - Define the program name and command line options
 # of the xterm that will run external text-mode programs.  Do not 
@@ -264,11 +273,15 @@ xterm "/usr/X11R6/bin/xterm -geometry 80x35 -bg black"
 # special meanings in Perl (especially '@'-signs, brackets
 # '<', '>', '[', and ']' ).  Periods as metacharacters match 
 # anything, including themselves.  Matches are case insensitive.
+# Make sure there is a newline after the last filter entry -
+# a nearly unavoidable Unix-ism.
 #
-# filter rkiesling\@mainmatter.com==important
+# filter rkiesling\@mainmatter.com==trash
 filter listserv\@ugu.com==unix911
 filter linux\@zdemail.zdlists.com==zines
 filter bulletin\@earthlink.net==zines
 filter Return-Path: \<owner-ptk\@lists.stanford.edu\>==perltk
 filter \<nytdirect\@nytimes.com\>==NY_Times
 filter newsletter\@teamguru.com==zines
+filter wired.com==Wired
+
