@@ -1,5 +1,5 @@
 #!/usr/local/bin/perl 
-my $RCSRevKey = '$Revision: 1.0 $';
+my $RCSRevKey = '$Revision: 1.1 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
 
@@ -23,7 +23,7 @@ $cfgfilename = &expand_path('~/.ec/.ecconfig');
 $serverfilename = &expand_path('~/.ec/.servers');
 
 $headerid = 
-"X-Mailer: EC E-Mail Client Version $VERSION, http://www.mainmatter.com/perltk/";
+"X-Mailer: EC $VERSION, http://www.mainmatter.com/perltk/";
 
 my $datesortorder;
 # Default directory for user's file opens and saves.
@@ -644,24 +644,6 @@ sub visit_sites {
     $c -> dchars ($servermsg, '0', 'end');
 }
 	
-sub format_sender {
-    my ($s) = @_;
-    # Only for standard listbox
-#  if( ( length $s ) < ($config->{senderlen}) ) {
-#    $s .=  substr $padding, 0, ($config->{senderlen}) - length $s;
-#    return $s;
-#  }
-#  if( ( length $s ) > ($config->{senderlen}) ) {
-#    return substr $s, 0, ($config->{senderlen});
-#  }
-    return $s;
-}
-
-sub format_subject {
-    my ($s) = @_;
-    return $s;
-}
-
 sub format_possible_rfcdate {
     my ($s) = @_;
     my ($wday, $day, $mon, $year, $hour, $min, $sec, $tz, $r);
@@ -878,29 +860,17 @@ sub listmailfolder {
 	    @subjline = grep /^Subject: /i, @msgtext;
 	    @fromline = grep /^From: /i, @msgtext;
 	    @dateline = grep /^Date: /i, @msgtext;
-	    if (strexist ($fromline[0])) {
-		chomp $fromline[0];
-		$fromline[0] =~ s/From:\s*//;
-	    } else {
-		$fromline[0] = '';
-	    }
-	    if (strexist ($subjline[0])) {
-		chomp $subjline[0];
-		$subjline[0] =~ s/Subject:\s*//i;
-	    } else {
-		$subjline[0] = '';
-	    }
-	    if (strexist ($dateline[0])) {
-		$dateline[0] =~ s/Date:\s*//i;
-		$dateline[0] =~ s/\n//;
-	    } else {
-		$dateline[0] = '';
+	    foreach my $s ($fromline[0], $subjline[0], $dateline[0]) {
+		if (strexist ($s)) {
+		    chomp $s;
+		    $s =~ s/.*: //;
+		} else {
+		    $s = '';
+		}
 	    }
 	    push @msgfilelist, 
 	      (&format_possible_rfcdate($dateline[0]).
-	       ' ~~~'.
-	       &format_sender($fromline[0]).'~~~'.
-	       &format_subject($subjline[0]) . 
+	       ' ~~~'. $fromline[0] . '~~~' . $subjline[0] .
 	       "~~~$msgid" );
 	}
 	if ($config->{sortfield} =~ /1/) { # sort by date
@@ -1291,9 +1261,7 @@ sub sendmsg {
 	@msgtextlist = split /\n/, $msgtext;
 	print $msghdr if $config->{debug};
 	@hdrlist = split /\n/, $msghdr;
-	foreach $line ( @hdrlist ) { 
-	    ($fcc_file) = ($line =~ s/Fcc //i) if ($line =~ /Fcc:/i);
-	}
+	($fcc_file) = ($msghdr =~ /Fcc: (.*?)$/smi);
 	if ($config->{usesendmail}) {
 	    ($msghdr, $msgtext) = 
 		split /$msgsep/, $ct -> get ('1.0', 'end');
@@ -1973,9 +1941,6 @@ $config->{offline} = 1 if $opt_o;
 use warnings;
 
 $LFILE = "/tmp/popm.$UID";
-
-#Perl 5 - have to set PATH to known value - security feature
-$ENV{'PATH'}="/bin:/usr/bin:/usr/local/bin:/usr/lib:/usr/sbin";
 
 # Get list of sites from configuration file: See above.
 $lsites = &get_user_info;
@@ -2814,7 +2779,7 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  $Id: ec,v 1.0 2001/10/06 11:29:17 kiesling Exp $
+  $Id: ec,v 1.1 2001/10/25 11:20:21 kiesling Exp $
 
 =head1 CREDITS
 

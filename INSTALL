@@ -88,13 +88,14 @@ TROUBLESHOOTING
   program), or /usr/bin/perl.  If neither of these work, try
   using the output of the command: "which perl".
 
-1. Configuring for Solaris Systems
+2. Configuring for Solaris and SunOS Systems
 
   The ec program as distributed is configured for Linux systems.
   You'll need to edit the .ec/.ecconfig file, especially the
   setting of mailspooldir, and possibly the sendmail and qmail
-  related settings.  If you have problems with configuration,
-  please contact the author at the email address below.
+  related settings.  In addition, the SOCK_STREAM parameter at 
+  line 46 might need adjusting for some versions of Solaris or
+  SunOS.  
 
 
 If the program doesn't work for some reason that isn't covered in the
