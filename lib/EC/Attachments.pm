@@ -2,7 +2,7 @@ package EC::Attachments;
 
 $VERSION=0.10;
 
-my $base64enc = 'encdec';
+use MIME::Base64;
 
 my $outgoing_mime_boundary = "_----------------------------------";
 
@@ -15,18 +15,16 @@ my @base64_headers = ('MIME-Version: 1.0',
                          $outgoing_mime_boundary.'"', 
                       'Content-Transfer-Encoding: base64');
 
-my @base64_attachment_header = ('Content-Type: application/octet-stream; name=',
-                      'Content-Transfer-Encoding: base64',
-                      'Content-Disposition: filename=');
-
 sub attachment_filenames {
     my ($msg) = @_;
     my (@filenames, $name);
-    my $boundary = &mime_boundary ($msg);
+    my $boundary = mime_boundary ($msg);
     my @msglines = split /\n/, $msg;
     foreach my $l (@msglines) {
 	if ($l =~ /filename\=/si) {
-	    ($name) = ($l =~ /filename\=\"(.*?)\"/si);
+	    ($name) = ($l =~ /filename=(.+)/si);
+	    # In case the file name is in quotes.
+	    $name =~ s/\"//g;
 	    push @filenames, ($name);
 	}
     }
@@ -48,27 +46,12 @@ sub save_attachment {
     # endings here.  Boundary at the end of the attachment is preceded
     # in practice by two newlines.
     my ($cstr) = ($msg =~ 
-      m"filename=\"$attachmentfilename\".*?\n\n(.*?)\n+--$boundary"smi);
-    open TMP, ">/tmp/ec-tmp-$$" or warn "Couldn't open temp file: $!\n";
-    print TMP $cstr;
-    close TMP;
-    `$base64enc -d -b </tmp/ec-tmp-$$ >$ofilename 2>/tmp/ec-error-$$`;
-    open ERROR, "/tmp/ec-error-$$" or warn
-	"Couldn't open /tmp/ec-error-$$: $!\n";
-    if (scalar (grep (/base64/, <ERROR>)) != 0) {
-	unlink "$ofilename";
-	open TMP, "/tmp/ec-tmp-$$" or
-	    warn "Couldn't open /tmp/ec-tmp-$$ for copying: $!\n";
-	open OFILE, ">$ofilename" or 
-	    warn "Couldn't open $ofilename for direct write: $!\n";
-	my $line;
-	while (defined ($line = <TMP>)) { print OFILE $line }
-	close TMP;
-	close OFILE;
-	close ERROR;
-    }
-    unlink "/tmp/ec-error-$$";
-    unlink "/tmp/ec-tmp-$$";
+      m"filename=\"?$attachmentfilename\"?.*?\n\n(.*?)\n+--$boundary"smi);
+    $line = MIME::Base64::decode_base64 ($cstr);
+    open FILE, ">$ofilename" or 
+	warn "Could not save $ofilename: $!\n";
+    print FILE $line;
+    close FILE;
 }
 
 ### Required plain and base64 message header fields.
@@ -103,14 +86,16 @@ sub format_attachment {
 		  "Content-Disposition: attachment; filename=\"$basename\"");
     push @formatted, ('');
 
-    open ENC, "$base64enc -e -b <$filepath|" or
-	    &show_warn_dialog ($mw, $warndialog,
-                               -message => "Couldn't encode $fullname: $!\n");
-    while ( defined ($line = <ENC>) ) {
-	chomp $line;
-	push @formatted, ($line);
+    open FILE, "$filepath" or
+	warn "Could not encode $filepath: $!\n";
+    my $s = '';
+    while (defined ($line = <FILE>)) {
+	$s .= $line;
     }
-    close ENC;
+    close FILE;
+    my $encoded = MIME::Base64::encode_base64 ($s);
+    my @lines = split /\n/, $encoded;
+    push @formatted, @lines;
     push @formatted, ('');
     return @formatted;
 }

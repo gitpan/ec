@@ -1,5 +1,5 @@
 package Tk::SimpleFileSelect;
-$VERSION=0.66;
+$VERSION=0.67;
 use vars qw($VERSION @EXPORT_OK);
 @EXPORT_OK = qw(glob_to_re);
 
@@ -22,7 +22,6 @@ sub Accept_dir {
  my ($cw,$new) = @_;
  my $dir  = $cw->cget('-directory');
  $cw->configure(-directory => "$dir/$new", -title => "$dir/$new" );
- $cw->configure (-initialtext => '');
 }
 
 sub Open {
@@ -264,14 +263,14 @@ __END__
 
 =head1 NAME
 
-  SimpleFileSelect -- Easy-to-Use File Selection Widget
+  SimpleFileSelect - Easy-to-Use File Selection Widget
 
 =head1 SYNOPSIS
 
   use Tk::SimpleFileSelect;
 
-  my $fs = $mw -> Tk::SimpleFileSelect();
-  my $file = $fs -> Show;
+  my $fs = $mw -> SimpleFileSelect();
+  my $file = $fs -> Show();
 
 =head2 Options
 
@@ -280,12 +279,12 @@ __END__
 =item -font
 
 Name of the font to display in the directory list and file
-name entry.  The default is '*-helvetica-medium-r-*-*-12-*'.
+name entry.  The default is "*-helvetica-medium-r-*-*-12-*."
 
 =item -width
 
-Width in character columns of the directory listbox.
-The default is 30.
+Width in character columns of the directory listbox.  The default is
+30.
 
 =item -height
 
@@ -295,7 +294,7 @@ Height in lines of the directory listbox.  The default is 14.
 
 =item -initialdir
 
-Path name of initial directory to display.  The default is '.'
+Path name of initial directory to display.  The default is "."
 (current directory).
 
 =item -files
@@ -305,20 +304,19 @@ is 1 (display files).
 
 =item -dotfiles
 
-If non-zero, display normally hidden files that begin with '.'.
+If non-zero, display normally hidden files that begin with ".".
 The default is 0 (don't display hidden files).
 
 =item -acceptlabel
 
-Text to display in the 'Accept' button to accept a file or
-directory selection. Defaults to 'Accept'.  The first character
-is underlined to correspond with an Alt- accelerator constructed
-with the first letter of the label text.
+Text label of the "Accept" button. Defaults to "Accept," naturally.
+The first character is underlined to correspond with an Alt-
+accelerator constructed with the first letter of the label.
 
 =item -filter
 
 Display only files matching this pattern.  The default is
-'*' (all files).
+"*" (all files).
 
 =item -initialtext
 
@@ -326,10 +324,12 @@ The text to appear in the entry box when the widget is opened.
 
 =head1 DESCRIPTION
 
-Tk::SimpleFileSelect is a easy-to-use file selection widget based
-on the Tk::FileSelect widget, but returns only a file name.
-It is the job of the calling program perform any operations on the
-files named in the SimpleFileSelect's return value.
+Tk::SimpleFileSelect is an easy-to-use file selection widget based on
+Tk::FileSelect.  Unlike a FileSelect widget, it does not attempt to
+verify that a file exists.  A SimpleFileSelect Dialog returns whatever
+text is entered or selected, along with the complete pathname.  It is
+the job of the calling program perform any operations or validation of
+filenames.
 
 Clicking in the list box on a file or directory name selects
 it and inserts the selected item in the entry box.  Double clicking
@@ -338,11 +338,11 @@ directory.
 
 The Show() method causes the FileSelectWidget to wait until a
 file is selected in the Listbox, a file name is entered
-in the text entry widget, or the 'Close' button is clicked.
+in the text entry widget, or the "Cancel" button is clicked.
 
-The return value is the pathname of a file selected in the
-Listbox, or the fully qualified path name of a file given in the
-text entry, or an empty string if no file name is specified.
+The return value is the pathname of a file selected in the Listbox, or
+the path of the filename in the text entry, or an empty string if no
+file name is specified.
 
 =head1 ADVERTISED SUBWIDGETS
 
@@ -350,7 +350,7 @@ None.
 
 =head1 VERSION INFORMATION
 
-  $Id: SimpleFileSelect.pm,v 0.66 2002/03/28 14:46:41 kiesling Exp $
+  $Id: SimpleFileSelect.pm,v 0.67 2002/08/25 18:57:06 kiesling Exp $
 
 =head1 COPYRIGHT INFO
 
@@ -359,6 +359,6 @@ in the Perl/Tk library. It is freely distributable and modifiable
 under the same conditions as Perl. Please refer to the file
 "Artistic" in the distribution archive.
 
-Please submit any bugs to the author, rkiesling@earthlink.net.
+Written by Robert Allan Kiesling <rkiesling@earthlink.net>.
 
 =cut

@@ -26,11 +26,19 @@ CONTENTS
 
 SYSTEM REQUIREMENTS
 
-1. Perl 5.004 or later version.  If the version of Perl that is 
+1. Perl, at least version 5.004.  If the version of Perl that is 
    installed on the system is earlier than 5.004, you probably 
    can't run much of anything else, either.
-2. Perl/Tk version 800.022 or later. 
-3. Local or Internet connections to a POP3 and SMTP server.
+2. Perl/Tk version 800.022 or later. You can download Perl/Tk
+   from http://www.cpan.org/.  There are also Perl/Tk binary
+   packages for many different systems.
+3. MIME::Base64, if you want to send and receive MIME e-mail 
+   attachments.  If you have Perl 5.8, it should already be 
+   installed.  Otherwise, you can download MIME::Base64 from 
+   http://www.cpan.org/.
+3. An Internet connection to a POP3 and SMTP server, or 
+   a local e-mail Mail Transfer Agent - either sendmail,
+   exim, or qmail.
 
 
 INSTALLING AND CONFIGURING

@@ -71,6 +71,9 @@ usesendmail 0
 # Guide in the Sendmail source code distribution, or one of the 
 # commercial books that describe Sendmail configuration.
 #
+# On Linux systems, "sendmailprog" is usually "/usr/sbin/sendmail."
+# On Solaris systems, "sendmailprog" should usually be "/usr/lib/sendmail."
+#
 sendmailprog /usr/sbin/sendmail
 #
 # If using sendmail, use the -f option to set the sender address
@@ -81,7 +84,7 @@ sendmailprog /usr/sbin/sendmail
 # header. It's better to use sendmail's 'always_add_domain' option when 
 # you build the sendmail.cf file, if possible.
 #
-sendmailsetfrom 1
+sendmailsetfrom 0
 #
 # When using the -f option with sendmail, what domain mailbox
 # name (a complete, valid email address), should be used on
@@ -102,6 +105,33 @@ useqmail 0
 # Set this to the path of qmail-inject.  The default is ''.
 #
 qmailinjectpath /var/qmail/bin/qmail-inject
+#
+#
+# EXIM OPTIONS
+# 
+# Set useexim to non-zero if exim is the MTA.
+#
+useexim 0
+#
+# Pathname of the exim program.
+#
+eximprog /usr/sbin/exim
+#
+# Set to non-zero if you are a trusted exim user (refer to the exim
+# manual page) and want to set the From: address on outgoing
+# messages with the -f option.  (For example, if you have configured
+# exim to use your ISP's SMTP server as a "smart host.")  Administrators 
+# can also set outgoing addresses in the "/etc/email-addresses" file.  
+# If the user address is set there, leave the "eximsetfrom" option set 
+# to 0.
+#
+eximsetfrom 0
+#
+# Set the From: address field if eximsetfrom, above, is non-zero.
+#
+eximsetfromaddress my_user_name@isp-net
+#
+#
 #
 # Name of the .signature file that is appended to outgoing messages.  
 # If not specified, defaults to $HOME/.signature 
@@ -163,10 +193,10 @@ trashdays 2
 #
 # Poll interval--how long EC waits before checking the POP server 
 # for new messages, in milliseconds.  This is not affected by 
-# user-requested checks (using Alt-O). The default is 600000 (about 
-# ten minutes).  Setting this to 0 turns off server polls.
+# user-requested checks (using Alt-O). The default is 0.  A value
+# of 60000 means poll every ten minutes.
 #
-pollinterval 600000
+pollinterval 0
 #
 # Set your local timezone here, in hours +/- GMT e.g., -0400 is
 # EDT, -0500 is EST and CDT, -0600 is CST and MDT, and so forth.

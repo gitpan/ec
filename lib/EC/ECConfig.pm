@@ -1,6 +1,7 @@
 package EC::ECConfig;
 
 use EC::Utilities;
+use Tk::Dialog;
 
 $VERSION=0.11;
 
@@ -19,7 +20,7 @@ my $defaults =       # config file; see ~/.ec/.ecconfig for description
    sigfile => '.signature',
    usesig => 1,
    mailspooldir => '/var/spool/mail',
-   maildir => 'Mail',
+   maildir => "$ENV{HOME}/Mail",
    qmailbox => "Mailbox",
    incomingdir => 'incoming',
    trashdir => 'trash',
@@ -50,7 +51,7 @@ my $defaults =       # config file; see ~/.ec/.ecconfig for description
 
 sub new {
   ($cfgfilename) = @_;
-  my $self = &readconfig ($cfgfilename);
+  my $self = readconfig ($cfgfilename);
   bless $self, 'EC::Config';
   return $self;
 }
@@ -109,6 +110,11 @@ sub readconfig {
   $headerfont = $userconfig{'headerfont'};
   $menufont = $userconfig{'menufont'};
   return \%userconfig;
+}
+
+sub direrrortext {
+    return "The program could not locate your $ENV{HOME}./ec\n".
+	"configuration directory.  Should I create one now?"
 }
 
 1;
