@@ -1,5 +1,5 @@
 package EC::About;
-my $RCSRevKey = '$Revision: 1.1 $';
+my $RCSRevKey = '$Revision: 1.3 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
 
@@ -32,19 +32,16 @@ sub Populate {
   $kanvas -> createImage (1,1, -image => $logo, -anchor => 'nw');
   $kanvas -> grid (-column => 1, -row => 1, -pady => 5);
   my $l = $w -> Component( Label => 'tile',
-	   -text => "\nEC Email Client\n Version ".$args->{-version}."\n",
-			 -font => $args->{-font});
+	   -text => "\nEC Email Client\n Version ".$args->{-version}."\n");
   $l -> grid( -column => 2, -row => 1, -pady => 5, -columnspan => 2);
   my $l2 = $w -> Component( Label => 'copyright',
-   -text => "Copyright \xa9 2001-2003\nRobert Allan Kiesling " .
-   "<rkiesling\@earthlink.net>.\n" .
-   "MS Windows Compatibility:\nRoland Bauer <roland.bauer\@fff.at>.\n\n" .
-   "Please read the file \"Artistic\" for license terms.\n",
-   -font => $args->{-font});
+   -text => "Copyright \xa9 2001-2003\nRobert Allan Kiesling, " .
+   "rkies\@cpan.org.\n" .
+   "MS Windows Compatibility:\nRoland Bauer, roland.bauer\@fff.at.\n\n" .
+   "Please read the file \"Artistic\" for license terms.\n");
   $l2 -> grid( -column => 1, -row => 2, -padx => 5, -pady => 5,
 	      -columnspan => 3);
   $b = $w->Button( -text => 'Dismiss', -command => sub{$w->WmDeleteWindow},
-                   -font => $args->{-font},
 		   -default => 'active' );
   $b->grid( -column => 1, -row => 3, -padx => 5, -pady => 5,
 	   -columnspan => 3);

@@ -11,8 +11,7 @@ use vars qw($VERSION @EXPORT_OK);
 
 =head1 SYNOPSIS
 
-  $d = $mw -> PasswordDialog ( -font => '*-helvetica-medium-r-*-*-12-*',
-                               -username => 'login' );
+  $d = $mw -> PasswordDialog (-username => 'login' );
   $d -> WaitForInput
 
   The -font option defaults to *-helvetica-medium-r-*-*-12-*.

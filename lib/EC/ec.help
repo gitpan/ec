@@ -2,46 +2,52 @@ NAME
       ec - E-mail reader and composer for Unix and Perl/Tk.
 
 SYNOPSIS
-    ec [`-f' *filename*] [`-hkvdo']
+    ec ["-f" *filename*] ["-hkvdo"]
 
   Command Line Options
-
-    `-f' *filename*
+    "-f" *filename*
         Use *filename* instead of the default server authentication file.
 
-    `-h'
+    "-h"
         Print help message and exit.
 
-    `-k'
+    "-k"
         Don't delete messages from POP server.
 
-    `-v'
+    "-v"
         Print verbose transcript of dialogs with servers.
 
-    `-d'
+    "-d"
         Print debugging information on the terminal.
 
-    `-o'
+    "-o"
         Offline - don't fetch mail from server.
 
 CONTENTS
     DESCRIPTION
     USING EC
+
         Sorting Messages
         Entering Messages
         File Attachments
+
     CONFIGURATION
+
         Configuration Files
         Mail Directories and Folders
         Filters
         Mail Transport Agents
         Editing the Library Path Names in the Source File
+        X Font Resources
+
     MAINTENANCE
+
         Folder Indexes
         PRINTING THE DOCUMENTATION IN DIFFERENT FORMATS
         LICENSE
         VERSION INFO
         CREDITS
+
 DESCRIPTION
         EC is an Internet email reader and composer that can download
         incoming messages from one or more POP3 servers, and send mail
@@ -74,6 +80,14 @@ USING EC
         window where you can enter new messages and reply to messages in the
         main window.
 
+        To view a message for reading, replying, or saving to a file, click
+        the left mouse button, button 1, on the message header in the list
+        window.
+
+        Moving and deleting can also operate on multiple messages. Select
+        multiple messages by clicking the left mouse button, button 1, with
+        the Control key down on each message in the list window.
+
         If EC and its supporting files correctly (as well as Perl and the
         Perl/Tk library modules), typing at the shell prompt in an xterm:
 
@@ -81,7 +95,7 @@ USING EC
 
         should start up the program and display the main window with the
         Incoming mail folder. If you receive an error message that the
-        program cannot connect to the POP mail server, use the `-v' command
+        program cannot connect to the POP mail server, use the "-v" command
         line option to produce a transcript of the dialog with the server:
 
           # ec -v
@@ -125,7 +139,6 @@ USING EC
         buttons).
 
   Sorting Messages
-
         You can select whether to sort messages by Date (the default), the
         sender, or the subject, either newest first or oldest first, by
         selecting the sort field from the "Options -> Sort by" submenu and
@@ -133,7 +146,6 @@ USING EC
         of the message listing.
 
   Entering Messages
-
         When you click on the "New" button on the function bar below the
         incoming message listing, or select "Message -> Compose New Message"
         from the menu, a window opens with a new message form with header
@@ -172,7 +184,6 @@ USING EC
         all recipients.
 
   File Attachments
-
         EC supports a subset of the Internet MIME specification which allows
         files to be sent as attachments to messages.
 
@@ -196,13 +207,14 @@ USING EC
         contains any attachments.
 
 CONFIGURATION
-  Configuration Files
+        The file, "README," contains installation instructions.
 
+  Configuration Files
         The program uses two configuration files, .ecconfig and .servers.
         They reside in the ~/.ec directory by default, although you can
         change their names and locations by editing their path names in the
         ec and Config.pm files directly . The files and directory are not
-        visible in normal directory listings. Use the `-a' option to ls to
+        visible in normal directory listings. Use the "-a" option to ls to
         view them:
 
           # ls -a ~/.ec
@@ -225,7 +237,7 @@ CONFIGURATION
 
           <server-name> <port> <user-login-name> <password>
 
-        If there is a hyphen, '`-'', in the password field, EC prompts you
+        If there is a hyphen, '"-"', in the password field, EC prompts you
         for the server's password when the program logs on to the server.
 
         In standard configurations, POP3 servers use port 110, and the
@@ -256,13 +268,12 @@ CONFIGURATION
         The .servers file is not editable from the Help menu.
 
   Mail Directories and Folders
-
         EC saves messages in user-configurable "folders," or directories,
         and can move messages between folders via the "Message -> Move To"
         submenu. The mail folders are subdirectories of the <maildir>
         setting, which is ~/Mail by default.
 
-        Assuming that a user's HOME directory is `/home/bill', the
+        Assuming that a user's HOME directory is "/home/bill", the
         directories that correspond to mail folders are:
 
           Option     Value      Path
@@ -283,8 +294,11 @@ CONFIGURATION
         can move messages into them. If a directory doesn't exist, EC warns
         you and saves the message in the ~/Mail/incoming directory.
 
-  Filters
+        The e-mail program mutt also uses a directory named "Mail" to store
+        messages. You should change the name of ec's "maildir" so that ec's
+        message storage does not conflict with mutt's mail storage.
 
+  Filters
         You can sort incoming mail by matching the text in an incoming
         message with a specified pattern. Each "filter" line in the
         .ecconfig file is composed of a text pattern, a double equals sign,
@@ -294,7 +308,7 @@ CONFIGURATION
           filter <text-pattern>==<folder-directory>
 
         Because the text pattern is used "raw" by Perl, you can use whatever
-        metacharacters Perl recognizes (refer to the `perlre' man page).
+        metacharacters Perl recognizes (refer to the "perlre" man page).
         Pattern matches are not case sensitive, and the folder-directory
         that the pattern matches must exist.
 
@@ -305,14 +319,17 @@ CONFIGURATION
         in the .ecconfig file.
 
   Mail Transport Agents
+        In additon to an ISP's SMTP server, EC can send outgoing messages
+        via sendmail, qmail, or exim, if any of them are installed. In the
+        .ecconfig file, the "usesendmail", "useqmail", and "useexim" options
+        determine which program, if any, is used. If the value of of any of
+        these options is non-zero, then outgoing mail is routed to the MTA;
+        otherwise, the default is to send mail directly to the ISP's SMTP
+        server, using the information in the ~/.ec/.servers file.
 
-        In additon to an ISP's SMTP server, EC can send outgoing messages to
-        sendmail or qmail, if either is installed. In the .ecconfig file,
-        the `usesendmail' and `useqmail' options determine which program is
-        used. If the value of either is non-zero, then outgoing mail is
-        routed to the MTA; otherwise, the default is to send mail directly
-        to the ISP's SMTP server, using the information in the
-        ~/.ec/.servers file.
+        If no MTA is selected, then ec will send and receive messages
+        directly from a remote mail host, and it will not process messages
+        from a local mail transport agent.
 
         In most sendmail configurations, either the local sendmail must be
         configured to relay messages, or have a "smart host" defined. The
@@ -320,33 +337,42 @@ CONFIGURATION
         settings. Refer to the sendmail documentation for further
         information.
 
+        The exim configuration (selected by setting "useexim" to non-zero)
+        is similar to sendmail, but you can use exim with a remote "smart
+        host" without setting a From: domain address in ec, if the system
+        administrator created an entry for your domain email address in
+        "/etc/email-addresses."
+
         If the "useqmail" option is set, make sure that you can execute the
         qmail-inject program, which is /var/qmail/bin/qmail-inject in
         qmail's default configuration. EC still connects directly to an
         ISP's POP3 server, and uses the system UNIX mailbox, usually
         /var/spool/mail/<user>, for incoming messages.
 
-        The qmail-inject `-f' option is not implemented. The format of the
+        The qmail-inject "-f" option is not implemented. The format of the
         sender's return address can be set using environment variables.
         Refer to the qmail-inject manual page for information.
 
   Editing the Library Path Names in the Source File
-
         If you would like to change the path names of library files, use a
         text editor to edit the values of *$iconpath*, *$cfgfilename*,
         *$serverfilename*, and *$base64enc* at the beginning of the library
         modules they appear in.
 
-        The `expand_path' function expands leading tildes ('~') in file and
+        The "expand_path" function expands leading tildes ('~') in file and
         path names to the value of the $HOME environment variable, following
         the convention of the UNIX Bourne shell. Directory separators are
         forward slashes ('/'), so compatibility with non-UNIX file systems
         depends on the Perl environment to perform the path name
         translation.
 
+  X Fonts
+        Consult the file, "README," for information about setting X Window
+        System font resources, and the comments in the file, ".ecconfig,"
+        for setting fonts with the program's configuration options.
+
 Maintenance
   Folder Indexes
-
         Although EC attempts to maintain an accurate index of read and
         unread messages in each folder, it is possible, if you upgrade to a
         later version, or backup and then delete messages manually, that the
@@ -356,7 +382,8 @@ Maintenance
         folders. For example, to delete the indexes in the Incoming and
         Trash folders, use these commands:
 
-        ` # rm Mail/incoming/.index # rm Mail/trash/.index '
+          # rm Mail/incoming/.index
+          # rm Mail/trash/.index
 
         If EC does not find the .index file it will, as when you first ran
         the program, display a message that it is creating a new .index
@@ -382,10 +409,12 @@ LICENSE
         file "Artistic" in the distribution archive.
 
 VERSION INFO
-          $Id: ec,v 1.23 2002/04/14 13:39:27 kiesling Exp $
+          Version 1.26b
 
 CREDITS
-          Written by Robert Allan Kiesling, rkiesling@earthlink.net
+          Written by Robert Allan Kiesling, rkies@cpan.org.
+
+          Windows-specific routines written by Roland Bauer, roland.bauer@fff.at.
 
           Perl/Tk by Nick Ing-Simmons.
 

@@ -350,7 +350,7 @@ None.
 
 =head1 VERSION INFORMATION
 
-  $Id: SimpleFileSelect.pm,v 0.67 2002/08/25 18:57:06 kiesling Exp $
+  $Id: SimpleFileSelect.pm,v 1.2 2003/11/29 11:33:08 kiesling Exp $
 
 =head1 COPYRIGHT INFO
 
@@ -359,6 +359,6 @@ in the Perl/Tk library. It is freely distributable and modifiable
 under the same conditions as Perl. Please refer to the file
 "Artistic" in the distribution archive.
 
-Written by Robert Allan Kiesling <rkiesling@earthlink.net>.
+Written by Robert Allan Kiesling, rkies@cpan.org.
 
 =cut

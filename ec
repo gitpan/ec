@@ -1,13 +1,13 @@
 #!/usr/bin/perl 
 
-my $RCSRevKey = '$Revision: 1.26a $'; $RCSRevKey =~ /Revision: (.*?) /; $VERSION=$1;
+#my $RCSRevKey = '$Revision: 1.6 $'; $RCSRevKey =~ /Revision: (.*?) /;
+
+$VERSION = "1.26b";
 
 use Fcntl;
 use IO::Handle;
 use Tk;
-use Tk::TextUndo;
-use Tk::Listbox;
-use Tk::Frame;
+use Tk::widgets qw (TextUndo Listbox Frame CmdLine);
 use Tk::SimpleFileSelect;
 use Tk::ECWarning;
 use EC::ECConfig;
@@ -42,6 +42,14 @@ my $defaultuserdir;
 my $systemmbox;
 
 #
+#  Get X resources from ~/.Xresources, ~/.Xdefaults, or ~/Ec
+#
+Tk::CmdLine::SetArguments(-class => Ec);
+Tk::CmdLine::LoadResources(-file => "$ENV{HOME}/.Xdefaults");
+Tk::CmdLine::LoadResources(-file => "$ENV{HOME}/.Xresources");
+Tk::CmdLine::LoadResources ();
+
+#
 #  Check for configuration files.
 #
 if ((!-d $ENV{HOME}.'/.ec') || 
@@ -55,8 +63,27 @@ if ((!-d $ENV{HOME}.'/.ec') ||
 	"the manual page (\"man ec\").\n";
     exit 255;
 }
+
+#
 # Config hash reference.  Refer to EC::ECConfig.pm
+#
 my $config = EC::ECConfig::new ($cfgfilename); 
+
+#
+# Override X font resources if fonts are defined in $config
+# $menufont provides the default font setting
+#
+Tk::CmdLine::SetResources ('*font: ' . $config -> {menufont}) 
+    if defined $config -> {menufont};
+
+Tk::CmdLine::SetResources ('*Listbox*font: ' . $config -> {listfont})
+    if defined $config -> {listfont};
+
+Tk::CmdLine::SetResources ('*Button*font: ' . $config -> {buttonfont})
+			   if defined $config -> {buttonfont};
+
+Tk::CmdLine::SetResources ('*TextUndo*font: ' . $config -> {textfont}) 
+			   if defined $config -> {textfont};
 
 
 # Global widget references.
@@ -67,8 +94,6 @@ my $savefiledialog = undef;  # File save dialogs
 my $insertfiledialog = undef;  
 my $warndialog = undef;
 my $attachfiledialog = undef;
-
-
 
 ##
 ##  The following code is for Socket stuff.
@@ -428,8 +453,7 @@ sub addressees {
 sub passwd_dialog {
     my ($mw,$user) = @_;
     require EC::PasswordDialog;
-    my $passworddialog = $mw -> PasswordDialog(-font => $config->{menufont},
-					    -username => $user );
+    my $passworddialog = $mw -> PasswordDialog(-username => $user);
     return $passworddialog -> WaitForInput;
 }
 
@@ -440,7 +464,7 @@ sub server_error_dialog {
 	dchars ($mw -> Subwidget('servermsg'), '0', 'end');
     my $title = ($port =~ /25/)?"SMTP Server Error":"POP3 Server Error";
     my $dialog = $mw -> Dialog (-title => $title,
-	-text => $msg, -font => $config->{menufont}, -default_button => 'OK',
+	-text => $msg, -default_button => 'OK',
 	-bitmap => 'error', -buttons => ['OK']) -> Show;
 }
 
@@ -2002,7 +2026,7 @@ sub compose {
 
 sub composemenu {
     my ($w) = @_;
-    my $cm = $w -> Menu(-type => 'menubar', -font => $config->{menufont});
+    my $cm = $w -> Menu(-type => 'menubar');
     my $composefilemenu = $cm -> Menu;
     my $composeeditmenu = $cm -> Menu;
     my $composeattachmentsmenu = $cm -> Menu;
@@ -2016,32 +2040,26 @@ sub composemenu {
 	       -menu => $composeattachmentsmenu);
     $composefilemenu -> add('command', -label => 'Insert File...',
 			    -accelerator => 'Alt-I',
-			    -font => $config->{menufont},
 			    -command => sub {InsertFileDialog($w)});
     $composefilemenu -> add ('separator');
     $composefilemenu -> add ('command', -label => 'Minimize', 
 			    -state => 'normal',
-			    -font => $config->{menufont}, 
 			    -accelerator => 'Alt-Z',
 			    -command => sub{$w->toplevel->iconify});
     $composefilemenu -> add ('command', -label => 'Close',
 			     -accelerator => 'Alt-W',
-			     -font => $config->{menufont},
 			     -command => sub { $w -> WmDeleteWindow});
     EditMenuItems ($composeeditmenu, ($w -> Subwidget ('text')));
     $composeattachmentsmenu -> add ('command', -label => 'Attach File...',
-	    -font => $config -> {menufont},
 	    -command => sub {compose_attachment_dialog($w)});
     $composeattachmentsmenu -> add ('cascade', 
 		    -label => 'Remove Attachment...',
-		    -font => $config -> {menufont},
 		    -menu => $composeattachmentfilesmenu);
     my $optionalfields = OptionalFields ($w -> Subwidget ('text'));
     $optionalfieldsmenu -> AddItems (@$optionalfields);
-    $optionalfieldsmenu -> configure (-font => $config->{menufont});
     $composeeditmenu -> add ('separator');
     $composeeditmenu -> add ('cascade',  -label => 'Insert Field',
-			   -state => 'normal', -font => $config->{menufont},
+			   -state => 'normal', 
 			   -menu => $optionalfieldsmenu);
     return $cm;
 }
@@ -2079,38 +2097,38 @@ sub insertfield {
 
 sub composewidgets {
     my ($mw) = @_;
+    my $b_org = 55;
     my $cw = new MainWindow (-title => "New Message");
     my $ct = $cw -> Scrolled ('TextUndo', -height => 24,
 			      -scrollbars => 'osoe',
 			      -background => 'white',
-			      -font => $config->{textfont},
 			      -wrap => 'word',
 			      -width => 80);
     $ct -> Subwidget ('xscrollbar') -> configure (-width => 10);
     $ct -> Subwidget ('yscrollbar') -> configure (-width => 10);
     $cw -> Advertise ('text' => $ct);
-    $ct -> tagConfigure ('header', '-font', $config->{headerfont});
+    $ct -> tagConfigure ('header', '-font', $config->{headerfont})
+	if defined $config -> {headerfont};
     my $menu = composemenu ($cw);
     $menu -> pack (-anchor => 'w', -fill => 'x');
     $ct -> pack (-expand => 1, -fill => 'both');
     my $c = $cw -> Canvas (-height => 40, -width => 600);
     $cw -> Advertise ('button_bar' => $c);
-    my $servermsg = $c -> createText (500, 20, -font => $config->{menufont},
+    my $servermsg = $c -> createText (500, 20, 
 				      -text => 'Composing message.',
 				      -justify => 'right');
     $cw -> Advertise ('servermsg' => $servermsg);
     my $sendbutton = $cw -> Button (-text => 'Send',
-				   -font => $config->{menufont},
 				   -width => 8,
 				   -underline => 0,
 				   -command => sub{ bind_sendmsg( $cw, $ct,
 							  $c, $servermsg)});
     my $closebutton = $cw -> Button (-text => 'Cancel',
-				  -font => $config->{menufont},
 				  -width => 8,
 				   -command => sub{$cw -> WmDeleteWindow});
     my $cdcanv = $c -> createWindow (55, 18, -window => $sendbutton);
-    my $cncanv = $c -> createWindow (137, 18, -window => $closebutton);
+    my $cncanv = $c -> createWindow ($b_org + $closebutton -> reqwidth, 
+				     18, -window => $closebutton);
     $c -> pack(-expand => '1', -fill => 'x');
     $cw -> bind ('<Alt-s>',sub{bind_sendmsg( $cw, $ct, $c, $servermsg)});
     standard_keybindings ($cw);
@@ -2132,7 +2150,6 @@ sub compose_attachment_dialog {
     $attachmentfilemenu -> delete (1, 'end');
     foreach (@attachments) {
 	$attachmentfilemenu -> add ('command', -label => $_,
-			    -font => $config -> {menufont},
 			    -command => [\&compose_remove_attachment, $w,$_]);
     }
 }
@@ -2150,7 +2167,6 @@ sub compose_remove_attachment {
     $attachmentfilemenu -> delete (1, 'end');
     foreach (@attachments) {
 	$attachmentfilemenu -> add ('command', -label => $_,
-			    -font => $config -> {menufont},
 			    -command => [\&compose_remove_attachment, $w,$_]);
     }
 }
@@ -2161,12 +2177,10 @@ sub menu_list_attachments {
     $attachmentmenu -> delete (1, 'end');
     my @attachmentlist = EC::Attachments::attachment_filenames ($msg);
     if ($#attachmentlist == -1) {
-	$attachmentmenu -> insert (1, 'command',
-		       -font => $config -> {menufont}, -label => '(None)');
+	$attachmentmenu -> insert (1, 'command', -label => '(None)');
     } else {
 	foreach (@attachmentlist) {
 	    $attachmentmenu -> add ('command', -label => $_,
-				    -font => $config -> {menufont},
 			    -command => [\&save_attachment_file, $msg,$_]);
 	}
     }
@@ -2246,7 +2260,6 @@ sub deletetrashfolder {
 	my $trashdir = $config->{trashdir};
 	my $dialog = $mw -> Dialog( -title => "Empty Trash",
 				    -text => "Confirm empty trash?",
-				    -font => $config->{menufont}, 
 				    -default_button => 'No',
 		-bitmap => 'question', -buttons => ['Yes', 'No'] );
 	return if ($dialog -> Show) eq 'No';
@@ -2283,7 +2296,7 @@ if ($opt_h || !$opt_errs) {
     print "  -k                 Keep mail on server (don't delete).\n";
     print "  -v                 Print verbose messages.\n";
     print "  -d                 Print debugging information.\n";
-    die "\nPlease report bugs to rkiesling\@earthlink.net.\n";
+    die "\nPlease report bugs to rkies\@cpan.org.\n";
 }
 
 if ($opt_f) { $serverfilename = $opt_c if (-f $opt_c) }
@@ -2311,7 +2324,6 @@ sub init_main_widgets {
 			     -relief => 'sunken',
 			     -selectmode => 'extended',
 			     -width => 80,
-			     -font => $config->{textfont},
 			     -background => 'white',
 			     -foreground => 'black',
 			     -scrollbars => 'osoe');
@@ -2330,14 +2342,14 @@ sub init_main_widgets {
 			     -wrap => 'word',
 			     -background => 'white',
 			     -foreground => 'black',
-			     -font => $config->{textfont},
 			     -wrap => 'word',
 			     -width => 80);
     $mw -> Advertise ('text' => $t);
 
     my $mb = init_main_menu ($mw);
 
-    $t -> tagConfigure ('header', -font => $config->{headerfont});
+    $t -> tagConfigure ('header', -font => $config->{headerfont})
+	if defined $config -> {headerfont};
     $t -> Subwidget ('yscrollbar') -> configure(-width=>10);
     $t -> Subwidget ('xscrollbar') -> configure(-width=>10);
     # Unbind the text widget's popup menu
@@ -2365,27 +2377,31 @@ sub init_main_widgets {
 
 sub init_button_bar {
     my ($mw) = @_;
+    my $b_org = 55;
     my $c = $mw -> Canvas (-height => 40, -width => 600);
     $mw -> Advertise ('button_bar' => $c);
     my $deletebutton = $mw -> Button (-text => 'Delete',
-		      -font => $config->{menufont},
 		      -width => 8, -underline => 0,
 		  -command => sub{ movemesg ($mw, $config->{trashdir})});
     my $newbutton = $mw -> Button (-text => 'New',
-	   -font => $config->{menufont}, -width => 8,
-	   -underline => 0,  -command => sub{compose ($mw)});
+	   -width => 8, -underline => 0,  
+	   -command => sub{compose ($mw)});
     my $replybutton = $mw -> Button (-text => 'Reply',
-	     -font => $config->{menufont}, -width => 8,
-	     -underline => 0, -command => sub{reply ($mw)});
+      -width => 8, -underline => 0, 
+      -command => sub{reply ($mw)});
 
-    my $dcanv = $c -> createWindow (55, 18, -window => $deletebutton);
-    my $ncanv = $c -> createWindow (137, 18, -window => $newbutton);
-    my $rcanv = $c -> createWindow (219, 18, -window => $replybutton);
+    my $dcanv = $c -> createWindow ($b_org, 18, -window => $deletebutton);
+    my $ncanv = $c -> createWindow ($deletebutton -> reqwidth + $b_org, 
+				    18, -window => $newbutton);
+    my $rcanv = $c -> createWindow ($b_org + $deletebutton -> reqwidth +
+				    $newbutton -> reqwidth, 18, 
+				    -window => $replybutton);
 
-    my $msgcounter = $c -> createText (500, 15, -font => $config->{menufont},
+    # $menufont by default
+    my $msgcounter = $c -> createText (500, 15, 
 	       -text => $countertext, -justify => 'right' );
     $mw -> Advertise ('msgcounter' => $msgcounter);
-    my $servermsg = $c -> createText (500, 30, -font => $config->{menufont},
+    my $servermsg = $c -> createText (500, 30, 
 	      -text => '', -justify => 'right' );
     $mw -> Advertise ('servermsg' => $servermsg);
     return $c;
@@ -2393,7 +2409,7 @@ sub init_button_bar {
 
 sub init_main_menu {
     my ($mw) = @_;
-    my $mb = $mw -> Menu (-type => 'menubar', -font => $config->{menufont});
+    my $mb = $mw -> Menu (-type => 'menubar');
     my $filemenu = $mb -> Menu;
     my $attachmentmenu = $mb -> Menu;
     $mw -> Advertise ('attachmentmenu' => $attachmentmenu);
@@ -2416,98 +2432,86 @@ sub init_main_menu {
     $mb -> add ('separator');
     $mb -> add ('cascade', -label => 'Help', -menu => $helpmenu);
     $filemenu -> add ('command', -label => 'Save As...', -state => 'normal',
-		  -font => $config->{menufont}, -accelerator => 'Alt-S',
+		      -accelerator => 'Alt-S',
 		  -command => sub{ SaveFileAsDialog ($mw)});
     $filemenu -> add ('command', -label => 'Empty Trash...', 
-		      -state => 'normal', -font => $config->{menufont},
-		  -command => sub{deletetrashfolder ($mw)});
+	      -state => 'normal', -command => sub{deletetrashfolder ($mw)});
     $filemenu -> add ('cascade', -label => 'File Attachments',
-		      -font => $config->{menufont},
 		      -menu => $attachmentmenu);
     $filemenu -> add ('command', -label => 'Browse URL...',
-		  -state => 'normal', -font => $config->{menufont},
-		  -accelerator => 'Alt-E',
+		  -state => 'normal',-accelerator => 'Alt-E',
 		  -command => sub{browse_url ($mw)});
     $filemenu -> add ('separator');
     $filemenu -> add ('command', -label => 'Minimize', -state => 'normal',
-		  -font => $config->{menufont}, -accelerator => 'Alt-Z',
+		      -accelerator => 'Alt-Z',
 		  -command => sub{$mw->toplevel->iconify});
     $filemenu -> add ('command', -label => 'Close', -state => 'normal',
-		  -font => $config->{menufont}, -accelerator => 'Alt-W',
+		      -accelerator => 'Alt-W',
 		  -command => sub{quitclient ($mw)});
 
     EditMenuItems ($editmenu, ($mw -> Subwidget ('text')));
     $messagemenu -> add ('command', -label => 'Check Server for Messages',
-		 -state => 'normal', -font => $config->{menufont}, 
-		 -accelerator => 'Alt-O', 
+		 -state => 'normal', -accelerator => 'Alt-O', 
 		 -command => sub{ incoming_poll ($mw,$lsites)});
     $messagemenu -> add ('separator');
     $messagemenu -> add ('command', -label => 'Compose New Message',
-		 -state => 'normal', -font => $config->{menufont}, 
-		 -accelerator => 'Alt-N', -command => sub{ compose ()});
+      -state => 'normal', -accelerator => 'Alt-N', 
+      -command => sub{ compose ()});
     $messagemenu -> add ('command', -label => 'Reply', -state => 'normal',
-		 -font => $config->{menufont}, -accelerator => 'Alt-R',
-		 -command => sub{reply ($mw)});
+			 -accelerator => 'Alt-R', 
+                         -command => sub{reply ($mw)});
     $messagemenu -> add ('command', -label => 'Delete', -state => 'normal',
-		  -font => $config->{menufont}, -accelerator => 'Alt-D',
+			 -accelerator => 'Alt-D',
 		  -command => sub{movemesg ($mw, $config->{trashdir})});
     $messagemenu -> add ('command', -label => 'Select All Messages',
-			 -state => 'normal', -font => $config->{menufont},
-			 -accelerator => 'Alt-A',
+			 -state => 'normal',-accelerator => 'Alt-A',
 			 -command => sub{selectallmessages($mw)});
     $messagemenu -> add ('separator');
     $messagemenu -> add ('command', -label => 'Next Message', 
-		 -state => 'normal', -font => $config->{menufont}, 
-		 -accelerator => 'Alt-Down',
+		 -state => 'normal', -accelerator => 'Alt-Down',
 		 -command => sub{ next_message ($mw)});
     $messagemenu -> add ('command', -label => 'Previous Message',
-		 -state => 'normal', -font => $config->{menufont}, 
-		 -accelerator => 'Alt-Up', 
+		 -state => 'normal', -accelerator => 'Alt-Up', 
 		 -command => sub{ previous_message( $mw )});
     $messagemenu -> add ('separator');
     foreach my $fn (@{$config->{folder}}) {
 	my $dirname = $fn;
 	$dirname =~ s/.*\/(.*?)$/$1/;
 	$destfoldermenu -> add ('command',-label => ucfirst $dirname,
-			-state => 'normal', -font => $config->{menufont},
+			-state => 'normal', 
 			-command => sub{ movemesg($mw, $fn)});
 	$foldermenu -> add ('command',-label => ucfirst $dirname,
-		    -state => 'normal', -font => $config->{menufont},
+		    -state => 'normal', 
 		    -command => sub{ changefolder($mw, $fn)});
     }
     $destfoldermenu -> insert (3, 'separator');
     $foldermenu -> insert (3, 'separator');
     $messagemenu -> add ('cascade', -label => 'Move To',  -state => 'normal',
-		  -font => $config->{menufont}, -menu =>  $destfoldermenu);
+			 -menu =>  $destfoldermenu);
 
     $optionmenu -> add ('cascade', -label => 'View Headers', 
-		-state => 'normal', -font => $config->{menufont},
-		-menu =>  $headerviewmenu);
+		-state => 'normal', -menu =>  $headerviewmenu);
     $optionmenu -> add ('cascade', -label => 'Sort by', -state => 'normal',
-		-font => $config->{menufont}, -menu =>  $sortfieldmenu);
+			-menu =>  $sortfieldmenu);
     $optionmenu -> add ('cascade', -label => 'Sort Order', 
-			-state => 'normal', -font => $config->{menufont}, 
-			-menu => $sortordermenu);
+			-state => 'normal', -menu => $sortordermenu);
 
     $helpmenu -> add ('command', -label => 'About...', -state => 'normal',
-	      -font => $config->{menufont},  -command => sub{about ($mw)});
+		      -command => sub{about ($mw)});
     $helpmenu -> add ('separator');
     $helpmenu -> add ('command', -label => 'Help...', -state => 'normal',
-		  -font => $config->{menufont}, -accelerator => 'F1',
+		      -accelerator => 'F1',
 		  -command => sub{self_help ()});
     $helpmenu -> add ('command', -label => 'Sample .ecconfig File...',
- 		  -state => 'normal', -font => $config->{menufont},
+ 		  -state => 'normal',
 		  -command => sub{ sample ('ecconfig')});
 
     $headeritems = HeaderViews ($mw);
     $headerviewmenu -> AddItems (@$headeritems);
-    $headerviewmenu -> configure (-font => $config->{menufont});
     $sortfielditems = SortFields ($mw);
     $sortfieldmenu -> AddItems (@$sortfielditems);
-    $sortfieldmenu -> configure (-font => $config->{menufont});
     $sortorderitems = SortOrder ($mw);
     $sortordermenu -> AddItems (@$sortorderitems);
-    $sortordermenu -> configure (-font => $config->{menufont});
     return $mb;
 }
 
@@ -2560,8 +2564,7 @@ sub about {
     my ($mw) = @_;
     require EC::About;
     require EC::ECIcon;
-    my $aboutbox = $mw -> About (-font => $config->{menufont},
-			 -version => $VERSION,
+    my $aboutbox = $mw -> About (-version => $VERSION,
 			 -title => 'About EC');
 }
 
@@ -2578,15 +2581,14 @@ sub self_help {
     my $buttonframe = $helpwindow -> Frame (-container => 0,
 					  -borderwidth => 1) -> pack;
     $textwidget = $textframe
-	-> Scrolled ('Text', -font => $config->{textfont},
-		     -scrollbars => 'e') -> 
+	-> Scrolled ('Text', -scrollbars => 'e') -> 
 			 pack(-fill => 'both', -expand => 1);
     $textwidget -> Subwidget ('yscrollbar') -> configure (-width=>10);
     $textwidget -> Subwidget ('xscrollbar') -> configure (-width=>10);
     $textwidget -> insert ('end', $help_text);
 
     my $b = $buttonframe -> Button (-text => 'Dismiss',
-		    -default => 'active', -font => $config->{menufont},
+		    -default => 'active', 
 		    -command => sub{$helpwindow -> DESTROY}) -> pack;
     $b -> focus;
 }
@@ -2608,13 +2610,12 @@ sub sample {
     my $buttonframe = $helpwindow -> Frame (-container => 0,
 					  -borderwidth => 1) -> pack;
     $textwidget = $textframe
-	-> Scrolled ('TextUndo', -font => $config->{textfont},
-		 -scrollbars => 'e')
+	-> Scrolled ('TextUndo', -scrollbars => 'e')
 	    -> pack (-fill => 'both', -expand => 1);
     $textwidget -> Subwidget ('yscrollbar') -> configure (-width=>10);
     $textwidget -> Subwidget ('xscrollbar') -> configure (-width=>10);
     $textwidget -> insert ('end', $help_text);
-    $buttonframe -> Button (-text => 'Dismiss', -font => $config->{menufont},
+    $buttonframe -> Button (-text => 'Dismiss',
 			  -command => sub{$helpwindow -> DESTROY}) ->
 			    pack;
 }
@@ -2624,21 +2625,16 @@ sub EditMenuItems {
     $m -> add ('command', -label => 'Undo',
 		-state => 'normal',
 		-accelerator => 'Alt-U',
-		-font => $config->{menufont},
 		-command => sub{$w -> undo});
     $m -> add ('separator');
     $m -> add ('command', -label => 'Cut', -state => 'normal',
-	       -accelerator => 'Alt-X', -font => $config->{menufont},
-	       -command => sub{$w -> clipboardCut});
+	       -accelerator => 'Alt-X', -command => sub{$w -> clipboardCut});
     $m -> add ('command', -label => 'Copy', -accelerator => 'Alt-C',
-	       -state => 'normal', -font => $config->{menufont},
-	       -command => sub{$w -> clipboardCopy});
+	       -state => 'normal',-command => sub{$w -> clipboardCopy});
     $m -> add ('command', -label => 'Paste', -accelerator => 'Alt-V',
-	       -state => 'normal', -font => $config->{menufont},
-	       -command => sub{$w -> clipboardPaste});
+	       -state => 'normal', -command => sub{$w -> clipboardPaste});
     $m -> add ('command', -label => 'Select All',
 	       -accelerator => 'Ctrl-/', -state => 'normal',
-	       -font => $config->{menufont},
 	       -command => sub{$w -> selectAll});
 }
 
@@ -2829,6 +2825,8 @@ Offline - don't fetch mail from server.
 
 =item   Editing the Library Path Names in the Source File
 
+=item   X Font Resources
+
 =back
 
 =item MAINTENANCE
@@ -2877,6 +2875,14 @@ EC uses two windows for email processing: the main window where you
 can read, sort, save, or delete incoming messages, and a composer
 window where you can enter new messages and reply to messages in the
 main window.
+
+To view a message for reading, replying, or saving to a file, click
+the left mouse button, button 1, on the message header in the list
+window.
+
+Moving and deleting can also operate on multiple messages.  Select
+multiple messages by clicking the left mouse button, button 1, with
+the Control key down on each message in the list window.
 
 If EC and its supporting files correctly (as well as Perl and the
 Perl/Tk library modules), typing at the shell prompt in an xterm:
@@ -3002,6 +3008,8 @@ contains any attachments.
 
 
 =head1 CONFIGURATION
+
+The file, "README," contains installation instructions.
 
 =head2 Configuration Files
 
@@ -3165,6 +3173,12 @@ the convention of the UNIX Bourne shell.  Directory separators are
 forward slashes ('/'), so compatibility with non-UNIX file systems
 depends on the Perl environment to perform the path name translation.
 
+=head2 X Fonts
+
+Consult the file, "README," for information about setting X Window
+System font resources, and the comments in the file, ".ecconfig," 
+for setting fonts with the program's configuration options.
+
 =head1 Maintenance
 
 =head2 Folder Indexes
@@ -3178,10 +3192,8 @@ In this case, you must delete the file named F<.index> in each of the
 folders.  For example, to delete the indexes in the Incoming and
 Trash folders, use these commands:
 
-C<
   # rm Mail/incoming/.index
   # rm Mail/trash/.index
->
 
 If EC does not find the F<.index> file it will, as when you first ran
 the program, display a message that it is creating a new F<.index>
@@ -3210,11 +3222,11 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  Version 1.26a
+  Version 1.26b
 
 =head1 CREDITS
 
-  Written by Robert Allan Kiesling, rkiesling@earthlink.net.
+  Written by Robert Allan Kiesling, rkies@cpan.org.
 
   Windows-specific routines written by Roland Bauer, roland.bauer@fff.at.
 

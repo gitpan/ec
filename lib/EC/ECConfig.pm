@@ -43,9 +43,6 @@ my $defaults =       # config file; see ~/.ec/.ecconfig for description
    timezone => '-0400',
    gmtoutgoing => 0,
    xterm => 'xterm',
-   textfont => '*-courier-medium-r-*-*-14-*',
-   headerfont => '*-courier-medium-i-*-*-14-*',
-   menufont => '*-helvetica-medium-r-*-*-14-*',
    offline => '',
    };
 

@@ -19,8 +19,13 @@ CAUTIONS
 CONTENTS
 
   SYSTEM REQUIREMENTS
+
   INSTALLING AND CONFIGURING
+
+    X Fonts
+
   PRINTING THE DOCUMENTATION
+
   TROUBLESHOOTING
 
 
@@ -114,6 +119,26 @@ INSTALLING AND CONFIGURING
     These are the path names used in the standard configuration.
     If you change them. make sure also to edit the options in the
     $HOME/.ec/.ecconfig file.
+
+
+X Fonts
+
+    Ec can use its own font configuration if it is specified in 
+    ~/.Xresources, ~/.Xdefaults, ~/Ec, or ~/.ec/.ecconfig.  Ec 
+    uses resources of the "Ec" class.  Here are some sample font 
+    resource entries.
+
+      !! Default font
+      Ec*font: *-helvetica-medium-r-*-*-12-*
+      !! Fonts for widget classes
+      Ec*Dialog*font: *-helvetica-medium-r-*-*-12-*
+      Ec*TextUndo*font: *-courier-medium-r-*-*-12-*
+      Ec*Listbox*font: *-courier-medium-r-*-*-12-*
+      Ec*Menu*font: *-helvetica-medium-r-*-*-12-*
+      Ec*Button*font: *-helvetica-medium-r-*-*-12-*
+
+    Fonts specified in .ecconfig override the X resource settings.
+    Refer to the comments in the .ecconfig file.
 
 
 PRINTING THE DOCUMENTATION
@@ -218,5 +243,5 @@ TROUBLESHOOTING
 
 If the program doesn't work for some reason that isn't covered in the
 TROUBLESHOOTING section, please let the author know.  Send bug
-reports, suggestions, and other feedback to rkiesling@earthlink.net.
+reports, suggestions, and other feedback to rkies@cpan.org.
 

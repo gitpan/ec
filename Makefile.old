@@ -49,9 +49,9 @@ AR_STATIC_ARGS = cr
 NAME = ec
 DISTNAME = ec
 NAME_SYM = ec
-VERSION = 1.25
-VERSION_SYM = 1_25
-XS_VERSION = 1.25
+VERSION = 1.26b
+VERSION_SYM = 1_26b
+XS_VERSION = 1.26b
 INST_BIN = blib/bin
 INST_EXE = blib/script
 INST_LIB = blib/lib
@@ -741,7 +741,7 @@ testdb_static :: testdb_dynamic
 # --- MakeMaker ppd section:
 # Creates a PPD (Perl Package Description) for a binary distribution.
 ppd:
-	@$(PERL) -e "print qq{<SOFTPKG NAME=\"ec\" VERSION=\"1,25,0,0\">\n}. qq{\t<TITLE>ec</TITLE>\n}. qq{\t<ABSTRACT></ABSTRACT>\n}. qq{\t<AUTHOR>Robert Allan Kiesling &lt;rkiesling\@earthlink.net&gt;</AUTHOR>\n}. qq{\t<IMPLEMENTATION>\n}. qq{\t\t<DEPENDENCY NAME=\"Tk\" VERSION=\"0,0,0,0\" />\n}. qq{\t\t<OS NAME=\"$(OSNAME)\" />\n}. qq{\t\t<ARCHITECTURE NAME=\"i386-linux\" />\n}. qq{\t\t<CODEBASE HREF=\"\" />\n}. qq{\t</IMPLEMENTATION>\n}. qq{</SOFTPKG>\n}" > ec.ppd
+	@$(PERL) -e "print qq{<SOFTPKG NAME=\"ec\" VERSION=\"1,26b,0,0\">\n}. qq{\t<TITLE>ec</TITLE>\n}. qq{\t<ABSTRACT></ABSTRACT>\n}. qq{\t<AUTHOR>Robert Allan Kiesling &lt;rkiesling\@earthlink.net&gt;</AUTHOR>\n}. qq{\t<IMPLEMENTATION>\n}. qq{\t\t<DEPENDENCY NAME=\"Tk\" VERSION=\"0,0,0,0\" />\n}. qq{\t\t<OS NAME=\"$(OSNAME)\" />\n}. qq{\t\t<ARCHITECTURE NAME=\"i386-linux\" />\n}. qq{\t\t<CODEBASE HREF=\"\" />\n}. qq{\t</IMPLEMENTATION>\n}. qq{</SOFTPKG>\n}" > ec.ppd
 
 # --- MakeMaker pm_to_blib section:
 

@@ -22,12 +22,17 @@
 # and menus and widgets.  Each font option should contain enough of 
 # a X Logical Font Descriptor (XLFD) to uniquely identify a font.  
 # The program "xfontsel" can preview fonts on your system, and "xlsfonts"
-# can list the available fonts on the system.  Consult the man pages
-# of these programs for further information.
+# can list the available fonts on the system.  You can also specify 
+# fonts as X system resources.  Refer to the installation instructions
+# in the file, "README," and the, "xfontsel," and, "xlsfonts," man pages.
+# Note that the $headerfont definition, which italicizes header fields, 
+# may only be defined here.
 # 
-textfont *-courier-medium-r-*-*-12-*
-headerfont *-courier-medium-i-*-*-12-*
-menufont *-helvetica-medium-r-*-*-12-*
+# textfont *-courier-medium-r-*-*-12-*
+# listfont *-courier-medium-r-*-*-12-*
+# headerfont *-courier-medium-i-*-*-12-*
+# buttonfont *-helvetica-medium-r-*-*-12-*
+# menufont *-helvetica-medium-r-*-*-12-*
 #
 # Your mail domain at the ISP.  Generally this is the part of 
 # your e-mail address after the '@'.  User name for each server
