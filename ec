@@ -2,7 +2,7 @@
 
 #my $RCSRevKey = '$Revision: 1.6 $'; $RCSRevKey =~ /Revision: (.*?) /;
 
-$VERSION = "1.26b";
+$VERSION = "1.27";
 
 use Fcntl;
 use IO::Handle;
@@ -3222,7 +3222,7 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  Version 1.26b
+  Version 1.27
 
 =head1 CREDITS
 
