@@ -1,7 +1,5 @@
 package Tk::SimpleFileSelect;
-my $RCSRevKey = '$Revision: 0.65 $';
-$RCSRevKey =~ /Revision: (.*?) /;
-$VERSION=0.63;
+$VERSION=0.66;
 use vars qw($VERSION @EXPORT_OK);
 @EXPORT_OK = qw(glob_to_re);
 
@@ -24,6 +22,7 @@ sub Accept_dir {
  my ($cw,$new) = @_;
  my $dir  = $cw->cget('-directory');
  $cw->configure(-directory => "$dir/$new", -title => "$dir/$new" );
+ $cw->configure (-initialtext => '');
 }
 
 sub Open {
@@ -87,8 +86,8 @@ sub Populate {
     $lb->grid( -column => 2, -row => 1, -rowspan => 2, -padx => 5,
 	    -pady => 5, -sticky => 'nsew' );
     $lb->bind('<Double-Button-1>' => [$w => 'Open', Ev(['getSelected'])]);
-    $lb->bind('<Button-1>', sub {($w->{Configure}{-selectedfile}=
-	    $lb->get($lb->curselection))&&($e->icursor( 'end' ))});
+    $lb->bind('<Button-1>', sub {($w->{Configure}{-initialtext}=
+           $lb->get($lb->curselection))});
     $b = $w -> Button(-textvariable => \$w->{'Configure'}{'-acceptlabel'},
     -underline => 0,-command => [$w => 'Open', Ev(['getSelected']) ]);
     $b->grid(-column=>1,-row=>1,-padx=>5,-pady=>5,-sticky=>'sew');
@@ -351,7 +350,7 @@ None.
 
 =head1 VERSION INFORMATION
 
-  $Id: SimpleFileSelect.pm,v 0.65 2002/03/24 21:34:56 kiesling Exp $
+  $Id: SimpleFileSelect.pm,v 0.66 2002/03/28 14:46:41 kiesling Exp $
 
 =head1 COPYRIGHT INFO
 
