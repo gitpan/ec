@@ -14,6 +14,7 @@ my $defaults =       # config file; see ~/.ec/.ecconfig for description
    smtpport => 25,
    usesendmail => 0,
    useqmail => 0,
+   useexim => 0,
    sendmailprog => '/usr/sbin/sendmail',
    sendmailsetfrom => 0,
    qmailinjectpath => '',
