@@ -1,11 +1,13 @@
-package PasswordDialog;
+package EC::PasswordDialog;
 my $RCSRevKey = '$Revision: 1.2 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
 use vars qw($VERSION @EXPORT_OK);
 @EXPORT_OK = qw(glob_to_re);
 
-=head1 NAME PasswordDialog - Password entry.
+=head1 NAME 
+
+   PasswordDialog - Password entry.
 
 =head1 SYNOPSIS
 
@@ -16,6 +18,10 @@ use vars qw($VERSION @EXPORT_OK);
   The -font option defaults to *-helvetica-medium-r-*-*-12-*.
   The -username option supplies the default text for the user
   name entry box.
+
+=head1 DESCRIPTION
+
+  A widget for the ec email program - refer to the ec documentation.
 
 =cut
 

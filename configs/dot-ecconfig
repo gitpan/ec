@@ -68,7 +68,7 @@ usesendmail 0
 # 
 # and make sure that your hostname resolves to your mail domain.  For 
 # further details, refer to the Sendmail Installation and Operation 
-# Guide in the Sendmail source code distribution, or one of the many 
+# Guide in the Sendmail source code distribution, or one of the 
 # commercial books that describe Sendmail configuration.
 #
 sendmailprog /usr/sbin/sendmail
@@ -102,7 +102,6 @@ useqmail 0
 # Set this to the path of qmail-inject.  The default is ''.
 #
 qmailinjectpath /var/qmail/bin/qmail-inject
-#
 #
 # Name of the .signature file that is appended to outgoing messages.  
 # If not specified, defaults to $HOME/.signature 
@@ -144,18 +143,10 @@ trashdir trash
 #
 # List any directories that you want to use for optional mail folders
 # here, each on a separate line. Subdirectories of the directory named 
-# in 'maildir,' above, must exist.  Case sensitivity of directory names 
-# depends on the operating system.
+# in 'maildir,' above, must exist.  Refer to the file ec.txt or the
+# help menu for details of how folder directories should be organized.  
+# Case sensitivity of directory names depends on the operating system.
 #
-folder DDJ
-folder Linux-FAQ
-folder NY_Times
-folder IEntry
-folder ebooks
-folder important
-folder perltk
-folder unix911
-folder zines
 # folder Memos
 # folder E-zines
 # folder Personal
@@ -189,12 +180,12 @@ gmtoutgoing 0
 # Initial width in columns of sender's address in mailbox list.
 # The default is 25.
 #
-senderlen 25
+senderwidth 25
 #
 # Initial width in columns of message date in mailbox list.
 # The default is 21.
 #
-datelen 21
+datewidth 21
 #
 # How much of an incoming message header to display.
 # Possible values are: 'full', 'brief', and 'none'.
@@ -254,7 +245,7 @@ verbose 0
 # /usr/X11R6/bin/opera.  If the browser is lynx, make sure that the options 
 # for xterm, below, are set correctly.
 #
-browser amaya
+browser netscape
 #
 # Xterm options - Define the program name and command line options
 # of the xterm that will run external text-mode programs.  Do not 
@@ -276,7 +267,6 @@ xterm "/usr/X11R6/bin/xterm -geometry 80x35 -bg black"
 # Make sure there is a newline after the last filter entry -
 # a nearly unavoidable Unix-ism.
 #
-# filter rkiesling\@mainmatter.com==trash
 filter listserv\@ugu.com==unix911
 filter linux\@zdemail.zdlists.com==zines
 filter bulletin\@earthlink.net==zines
@@ -284,4 +274,3 @@ filter Return-Path: \<owner-ptk\@lists.stanford.edu\>==perltk
 filter \<nytdirect\@nytimes.com\>==NY_Times
 filter newsletter\@teamguru.com==zines
 filter wired.com==Wired
-

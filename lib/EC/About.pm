@@ -1,4 +1,4 @@
-package About;
+package EC::About;
 my $RCSRevKey = '$Revision: 1.1 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;

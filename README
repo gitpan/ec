@@ -1,0 +1,162 @@
+EC - Perl/Tk email reader and composer.
+
+
+CAUTIONS
+
+1. As of Version 1.16, EC stores its library modules in the site_perl
+   library directory.  If you try to run an earlier version, you'll
+   likely receive "module not found" errors, at least, due to version 
+   icompatibilities. The safest course, after installing the new version, 
+   is to remove the library modules of the old version with the commands:
+
+     $ rm -rf ~/.ec/EC
+     $ rm -rf ~/.ec/Tk
+
+2. Remember to make backups of the .ecconfig and .servers files before
+   upgrading.
+
+
+CONTENTS
+
+  SYSTEM REQUIREMENTS
+  INSTALLING AND CONFIGURING
+  PRINTING THE DOCUMENTATION
+  TROUBLESHOOTING
+
+
+SYSTEM REQUIREMENTS
+
+You will need, in addition to Perl:
+
+1. A recent version of Perl/Tk.
+2. Local or Internet connections to a POP3 and SMTP server.
+
+
+INSTALLING AND CONFIGURING
+
+1.  Unpack the tar archive, preferably in your home directory 
+    (which you've already done it you're reading this).
+
+      tar zxvf ec-<version>.tar.gz
+
+2.  Install the program, library, and documentation files.  You can 
+    build the files while logged in as a normal user.  The actual 
+    installation requires system administrator privileges.
+
+      $ cd ec-<version>
+      $ perl Makefile.PL
+      $ make
+
+    Then log in as the system adminstrator and install:
+
+      # make install
+
+2.  Install the configuration files for each user.  They reside in
+    a subdirectory of each user's $HOME directory.  The default 
+    configuration files are located in the configs/ subdirectory: 
+    configs/dot-ecconfig and configs/dot-servers.  
+
+    If you are upgrading you may not need to re-install the 
+    configuration files, although you should check carefully
+    that the upgrade is compatible with the old configuration
+    files.
+
+    By default, the program looks for the configuration files
+    as $HOME/.ec/.ecconfig and $HOME/.ec/.servers.  The 
+    subdirectory and files are hidden.  Use the -a command
+    line option to ls to view them.  
+
+    For security, the .servers file has limited permissions, so 
+    that only the files owner can view them.  The program complains 
+    if the permissions are not correct.
+
+    While logged in as a normal user, install the configuration
+    files with the following commands:
+
+      # mkdir ~/.ec
+      # cp configs/dot-ecconfig ~/.ec/.ecconfig
+      # cp configs/dot-servers ~/.ec/.servers
+      # chmod 0600 ~/.ec/.servers
+
+3.  Edit the .ec/.ecconfig file with the program options of 
+    your choice.  You can read and edit the file with a text editor
+    or from the Help -> Sample .ecconfig File... menu option.  
+    The comments in the .eccfile explain the function of each option
+    and the possible values for them.  The help file, the Help -> Help
+    menu option, provides additional information.
+
+4.  On Solaris systems, make sure that the value of "mailspooldir"
+    in the ~/.ec/.ecconfig file is set to the system's mail spool
+    directory, the /var/mail directory in standard configurations.
+
+    You may also need to change the value of $SOCK_STREAM line 53 of
+    the ec program to '2' to communicate directly with SMTP and 
+    POP3 servers.  
+
+5.  EC requires, at the very least, a top-level mail subdirectory, 
+    and two sub-sub-directories, one for incoming mail and another 
+    for deleted messages.  Create the directories defined in the
+    configuration file with the following commands:
+
+      $ mkdir ~/Mail
+      $ mkdir ~/Mail/incoming
+      $ mkdir ~/Mail/trash
+
+    These are the path names used in the standard configuration.
+    If you change them. make sure also to edit the options in the
+    $HOME/.ec/.ecconfig file.
+
+
+PRINTING THE DOCUMENTATION
+
+It is possible produce this documentation in various formats
+using Perl's POD formatting utilities:
+
+  pod2html <ec >doc.html
+  pod2latex <ec >doc.tex
+  pod2man <ec >doc.man
+  pod2text <ec >doc.txt
+  pod2usage <ec >doc.msg
+
+Refer to your system's manual pages for instructions of how
+to use these utilities.
+
+
+TROUBLESHOOTING
+
+1. The installation should copy the executable programs to the same 
+   directory as the perl interpreter.  If the ec program is in your 
+   $HOME directory, typing simply, "ec" should produce a response like this:
+
+     bash: ec: command not found
+
+   Standard practice on Unix systems is *not* to include the
+   current directory in the search path for programs, as a 
+   security measure.  So, you need to specify the directory
+   explicitly.  Here are two ways to do it:
+
+     # The dot is a synonym for the current directory.
+     $ ./ec   
+     # A tilde is a synonym for your home directory.  
+     $ ~/ec
+
+   Refer to the documentation for the shell (man bash, man csh, man ksh,
+   etc.),  or almost any book about Unix.
+
+2. Setting the Location of the Perl Interpreter
+
+  If you try to run ec and get an error message like this:
+
+    bash: ec: No such file or directory
+
+  Then you need to edit the first line of the ec program file to 
+  the path to the system's perl interpreter.  Usually this is 
+  /usr/bin/perl (the default in the distributed program), or 
+  /usr/local/bin/perl.  If neither of these work, try using the 
+  output of the command: "which perl".
+
+
+If the program doesn't work for some reason that isn't covered in the
+TROUBLESHOOTING section, please let the author know.  Send bug
+reports, suggestions, and other feedback to rkiesling@mainmatter.com.
+

@@ -1,23 +1,25 @@
 #!/usr/bin/perl 
-my $RCSRevKey = '$Revision: 1.14 $';
+my $RCSRevKey = '$Revision: 1.17 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
 
 BEGIN{ unshift @INC, $ENV{'HOME'}.'/.ec' }
 
 use Fcntl;
+use IO::Handle;
 use Tk;
 use Tk::TextUndo;
 use Tk::SimpleFileSelect;
-use EC::Config;
+use EC::ECConfig;
 use Tk::Listbox;
 use Tk::ECWarning;
+use EC::Attachments;
 
 #
 #  Path names for library files.  Edit these for your configuration.
 #
 # Icon file name
-$iconpath = &expand_path('~/.ec/ec.xpm');
+$iconpath = &inc_path('EC/ec.xpm');
 #  Configuration options file.
 $cfgfilename = &expand_path('~/.ec/.ecconfig');
 # Server authorization file.
@@ -26,11 +28,15 @@ $serverfilename = &expand_path('~/.ec/.servers');
 $headerid = "X-Mailer: EC E-Mail Client Version $VERSION";
 
 my $datesortorder;
+
 # Default directory for user's file opens and saves.
 my $defaultuserdir;
 
-# Config hash reference.  Refer to EC::Config.pm
-my $config = &EC::Config::new ($cfgfilename); 
+# User's system mailbox: Usually $config->{mailspooldir} + username.
+my $systemmbox;
+
+# Config hash reference.  Refer to EC::ECConfig.pm
+my $config = &EC::ECConfig::new ($cfgfilename); 
 
 # Global widget references.
 #   Main Window widget.
@@ -56,10 +62,7 @@ my $countertext = '0 Messages';
 # Message ID sequence counter.
 my $msgsequence = 1;
 
-# my @sortedmessages = (); # headers after being sorted;
-
-my $sortedmessages;  # Pointer to sorted header array.
-
+my @sortedmessages;  # Pointer to sorted header array.
 
 # Message header fields.
 my $fromfield = "From:";
@@ -76,17 +79,7 @@ my $sigsep = "-- ";
 my @daynames = qw (Sun Mon Tue Wed Thu Fri Sat);
 my @monthnames = qw (Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
 
-my @standard_mime_headers = ('MIME-Version: 1.0',
-                             'Content-Type: ',
-                             'Content-Transfer-Encoding: ');
-my @base64_headers = ('Content-Type: application/octet-stream; name=',
-                      'Content-Transfer-Encoding: base64',
-                      'Content-Disposition: filename=');
-my $mime_boundary = "_----------------------------------";
 my @attachments = ();  # File attachments for outgoing messages.
-
-# Base 64 encoder and decoder filter
-my $base64enc = &expand_path ('~/.ec/encdec');
 
 #
 # Get user info
@@ -847,7 +840,7 @@ sub changefolder {
 sub listmailfolder {
     my ($l, $folder) = @_;
     my (@msgfiles, @msgfilelist, @subjline, @fromline, @dateline);
-    my (@msgtext, $msgid, $listingstatus, @findex, $sresult);
+    my (@msgtext, $msgid, $listingstatus, @findex, @sresult);
     my ($listingdate, $listingfrom, $listingsubject, $listingid);
     &watchcursor ($mw);
     eval {
@@ -893,7 +886,7 @@ sub listmailfolder {
 	    } @msgfilelist;
 	} elsif ($config->{sortfield} =~ /2/) { # sort by sender
 	    @sortedmessages = sort {
-		($l -> {ml_sort_descending}) ? ${$b}[1] cmp ${$a}[1] : $a1 cmp ${$b}[1];
+		($l -> {ml_sort_descending}) ? ${$b}[1] cmp ${$a}[1] : ${$a}[1] cmp ${$b}[1];
 	    } @msgfilelist;
 	} elsif ($config->{sortfield} =~ /3/) { # sort by subject
 	    @sortedmessages = sort {
@@ -904,11 +897,23 @@ sub listmailfolder {
 	    push @sortedmessages, @msgfilelist;
 	}
 
-        @findex = content ("$folder/.index") if (-f "$folder/.index");
+        # If there's no $folder/.index, create an empty index.
+        # This is less annoying than showing warning dialog
+        # every time &messageread tries to open a non-existent
+        # .index.
+        if (not -f "$folder/.index") {
+            &show_warn_dialog ($mw, $warndialog, 
+                               -message => "Couldn't open $folder/.index - creating."); 
+	    sysopen (INDEX, "$folder/.index", O_CREAT);
+	    close INDEX;
+        }
 
-	foreach my $hdr (@sortedmessages ) {
-	    $sresult = grep /${$hdr}[3]/, @findex;
-	    $listingstatus = 'u' unless $sresult;
+        foreach $hdr (@sortedmessages) {
+            if (not &messageread ($folder, ${$hdr}[3])) {
+               $listingstatus = 'u';
+            } else {
+		$listingstatus = '';
+            }
 	    ${$hdr}[0] =~ s/^\w\w\w\, // if ($config->{weekdayindate} =~ /0/);
 	    my $lline = &strfill ($listingstatus, 2);
 	    $lline .= ' ' . &strfill (${$hdr}[0], $config -> {datewidth});
@@ -1013,6 +1018,7 @@ sub displaymessage {
     my ($mw, $msgdir) = @_;
     my $l = $mw -> Subwidget ('messagelist');
     my $t = $mw -> Subwidget ('text');
+    my $attachmentmenu = $mw -> Subwidget ('attachmentmenu');
     my ($ml, $line, $ofrom, $hdr, @hdrlines, $body, $msg, $msgfile, $listrow);
     $mw -> update;
     # this prevents the program from carping if there's no selection.
@@ -1023,6 +1029,7 @@ sub displaymessage {
 	$t -> delete ('1.0', 'end');
 	$msgfile = ${$sortedmessages[$nrow]}[3];
 	$msg = content_as_str ("$msgdir/$msgfile");
+        &menu_list_attachments ($msg);
 	&addmsgtoindex ($msgfile,$msgdir);
 	&updatemsgcount ($mw, $msgdir);
 
@@ -1230,6 +1237,24 @@ sub selectallmessages {
     &displaymessage ($mw, $currentfolder);
 }
 
+sub messageread {
+    my ($folder, $id) = @_;
+    my $ff;
+    my $match = 0;
+    open INDEX, "<$folder/.index" or
+	    &show_warn_dialog ($mw, $warndialog,
+	       -message => "Could not open $f/.index in messageread(): $!\n");
+    while (defined ($ff = <INDEX>)) {
+	chomp $ff;
+	if ($ff =~ m"$id") {
+	    $match = 1;
+	    last;
+	}
+    }
+    close INDEX;
+    return $match;
+}
+
 sub movemesg {
     my ($mw, $dir) = @_;
     my ($il, $sel, @selections, $omsgfile,$nmsgfile);
@@ -1355,7 +1380,7 @@ sub sendmsg {
     my ($openstatus, $unfolded_addressees, $i, $line, $text);
     my ($host, $port, $uname, $passwd);
     my (@msgtextlist, $fcc_file, $msghdr, $msgtext, @hdrlist, @mimehdrs);
-    my (@addressees, @formatted_attachments);
+    my (@addressees, @formatted_attachment);
     my $md = $config->{maildomain};
     &watchcursor ($cw);
     eval {
@@ -1364,7 +1389,11 @@ sub sendmsg {
 		      "Formatting message... ");
 	$cw -> update;
 	$text = $ct -> get ('1.0', 'end');
-	@mimehdrs = &format_mime_headers ($text);
+	if (($#attachments >= 0) and (length ($attachments[0]))) {
+	    @mimehdrs = &EC::Attachments::base64_headers;
+	} else {
+	    @mimehdrs = &EC::Attachments::default_mime_headers;
+	}
 	($msghdr, $msgtext) = split /$msgsep/, $text;
 	@msgtextlist = split /\n/, $msgtext;
 	print $msghdr if $config->{debug};
@@ -1476,7 +1505,7 @@ sub sendmsg {
 	    print "<<<$mh\n" if ($config->{verbose});
 	    print SOCK "$mh\r\n";
 	}
-	my $inetmsgid = time.'ec@'.$localhost;
+	my $inetmsgid = time.'ec@'.$md;
 	chomp $inetmsgid;
 	print "<<<$msgidfield <$inetmsgid>\n" if ($config->{verbose});
 	print SOCK "$msgidfield <$inetmsgid>\r\n";
@@ -1501,9 +1530,12 @@ sub sendmsg {
 		      "Sending message body... ");
 	$cw -> update;
 
-	# text body MIME headers
-	if (($#attachments > 0) or (length $attachments[0])) {
-	    my @text_headers = &format_text_headers;
+        #
+	# Text body MIME header -- Only with attachments.  The final 
+        # separator gets sent after the attachments.
+        #
+	if (($#attachments >= 0) or (length $attachments[0])) {
+	    my @text_headers = &EC::Attachments::text_attachment_header;
 	    foreach my $hline (@text_headers) {
 		print "<<<$hline\n" if ($config->{verbose});
 		chomp $hline;
@@ -1520,16 +1552,23 @@ sub sendmsg {
 	    $mline = '.. ' if $mline eq '.';
 	    print SOCK "$mline\r\n";
 	}
+
 	# send attachment files, if any.
 	if ((defined $attachments[0]) and 
-	    (($#attachments > 0) or (length $attachments[0]))) {
-	    @formatted_attachments = &format_file_attachments;
-	    foreach $line (@formatted_attachments) {
-		print "<<<$line\n" if ($config->{verbose});
-		print SOCK "$line\r\n";
+	    (($#attachments >= 0) or (length $attachments[0]))) {
+	    foreach my $filepath (@attachments) {
+		@formatted_attachment = 
+		    &EC::Attachments::format_attachment ($filepath);
+		foreach $line (@formatted_attachment) {
+		    print "<<<$line\n" if ($config->{verbose});
+		    print SOCK "$line\r\n";
+		}
 	    }
-	    pop @formatted_attachments;
+	    my $outgoing_boundary = &EC::Attachments::outgoing_mime_boundary;
+	    print "<<<\-\-$outgoing_boundary" if ($config->{verbose});
+	    print SOCK "\-\-$outgoing_boundary\r\n";
 	}
+
 	print "<<<\n\<<<.\n" if ($config->{verbose});
 	print SOCK "\r\n\.\r\n";
 	# use longer timeout to give server time to finish
@@ -1640,67 +1679,6 @@ sub write_fcc {
     }
 }
 
-sub format_mime_headers {
-    my ($msg) = @_;
-    my (@headers, $hdrline);
-    if( ! defined $attachments[0] ) {   # plain text.
-	foreach $hdrline (@standard_mime_headers) {
-	    push @headers, ($hdrline) if $hdrline =~ /MIME-Version: 1.0/;
-	    push @headers, ($hdrline."text\/plain\; charset\=\"us-ascii\"")
-		if $hdrline =~ /Content-Type: /;
-	    push @headers, ($hdrline."7bit")
-		if $hdrline =~ /Content-Transfer-Encoding: /;
-	}
-	return @headers;
-    } else {
-	foreach $hdrline (@standard_mime_headers) {
-	    push @headers, ($hdrline) if $hdrline =~ /MIME-Version: 1.0/;
-	    push @headers,
-	    ($hdrline."multipart\/mixed\; boundary\=\"$mime_boundary\"")
-		if $hdrline =~ /Content-Type: /;
-	    push @headers, ($hdrline."base64")
-		if $hdrline =~ /Content-Transfer-Encoding: /;
-	}
-	return @headers;
-    }
-}
-
-sub format_text_headers {
-    return ( "",
-	     "This is a multi-part message in MIME format.",
-	     '--'.$mime_boundary,
-	     "Content-Type: text/plain; charset=us-ascii",
-	     "Content-Transfer-Encoding: 7bit" );
-}
-
-sub format_file_attachments {
-    my (@formatted, $fullname, $h, $line);
-    foreach $fullname (@attachments) {
-	$name = $fullname;
-	chomp $name;
-	$name =~ s/.*\///;
-	push @formatted, ('--'.$mime_boundary,
-		  "Content-Type: application/octet-stream; name=\"$name\"",
-		  "Content-Transfer-Encoding: base64",
-		  "Content-Disposition: attachment; filename=\"$name\"");
-
-	push @formatted, ('');
-	open ENC, "$base64enc -e -b <$fullname|" or
-	    &show_warn_dialog ($mw, $warndialog,
-			       -message => "Couldn't encode $fullname: $!\n");
-	while ( defined ($line = <ENC>) ) {
-	    chomp $line;
-	    push @formatted, ($line);
-	    # Remove any extra newlines
-	}
-	close ENC;
-	push @formatted, ('');
-    }
-    push @formatted, ('--'.$mime_boundary);
-    $#attachments = -1;
-    return @formatted;
-}
-
 # prepend $HOME directory to path name in place of ~
 sub expand_path {
     my ($s) = @_;
@@ -1710,6 +1688,13 @@ sub expand_path {
     }
     $s =~ s/\/\//\//g;
     return $s;
+}
+
+sub inc_path {
+    my ($filename) = @_;
+    foreach (@INC) {
+	return "$_/$filename" if -f "$_/$filename";
+    }
 }
 
 # provide at least an envelope address.
@@ -1744,8 +1729,7 @@ sub reply {
     my $fcc_file = $config->{fccfile};
     $ccline = '';
     $bccline = '';
-    $origmsgid = $sortedmessages[($l->curselection)[0]];
-    $origmsgid =~ s/^.*\~\~//;
+    $origmsgid = ${$sortedmessages[($l->curselection)[0]]}[3];
     $origmsg = content_as_str ("$currentfolder/$origmsgid");
     $origmsg =~ /(.*?\n)(\n.*)/sm;
     $orighdr = $1;
@@ -1833,7 +1817,7 @@ sub composemenu {
     $composefilemenu -> add ('command', -label => 'Attachments...',
 			     -font => $config->{menufont},
 			     -command => 
-			     sub{ &attachment_dialog( $mw, 'compose' )});
+			     sub{ &attachment_dialog ($mw)});
     $composefilemenu -> add ('command', -label => 'Close',
 			     -accelerator => 'Alt-W',
 			     -font => $config->{menufont},
@@ -1926,19 +1910,47 @@ sub bind_sendmsg {
 }
 
 sub attachment_dialog {
-    my ($mw, $wherefrom) = @_;
+    my ($mw) = @_;
     require EC::Attachment_Dialog;
     my ($messagefile, $filelabel);
-    if ($wherefrom eq 'main') {
-	$messagefile =
-	    $sortedmessages[$mw -> Subwidget ('messagelist') -> curselection];
-	$messagefile =~ s/.*~~~//;
-    }
+    $#attachments = -1;
     my $a = $mw -> Attachment_Dialog (-font => $config->{menufont},
-				    -caller => $wherefrom, 
-				    -file => $messagefile,
-				    -folder => $currentfolder );
+				    -folder => $currentfolder,
+				      -title => 'File Attachments');
     @attachments = $a -> Show;
+}
+
+sub menu_list_attachments {
+    my ($msg) = @_;
+    my $attachmentmenu = $mw -> Subwidget ('attachmentmenu');
+    $attachmentmenu -> delete (1, 'end');
+    my @attachmentlist = EC::Attachments::attachment_filenames ($msg);
+    if ($#attachmentlist == -1) {
+	$attachmentmenu -> insert (1, 'command',
+		       -font => $config -> {menufont}, -label => '(None)');
+    } else {
+	foreach (@attachmentlist) {
+	    $attachmentmenu -> add ('command', -label => $_,
+				    -font => $config -> {menufont},
+			    -command => [\&save_attachment_file, $msg,$_]);
+	}
+    }
+}
+
+sub save_attachment_file {
+    my ($msg, $attachmentfilename) = @_;
+    my $ofilename = &fileselect ($mw, $savefiledialog,
+				-directory => $ENV{HOME},
+				-acceptlabel => 'Save',
+				 -title => 'Save Attachment File');
+    if ((&strexist ($ofilename)) and (-f $ofilename)) {
+	my $response = &show_warn_dialog ($mw, $warndialog, 
+			   -message => "File $ofilename exists.  Overwrite?");
+	return if $response !~ /Ok/;
+    }
+    if (strexist ($ofilename)) {
+	&EC::Attachments::save_attachment ($msg, $attachmentfilename, $ofilename);
+    }
 }
 
 sub content {
@@ -2156,6 +2168,8 @@ sub init_main_menu {
     my ($mw) = @_;
     my $mb = $mw -> Menu (-type => 'menubar', -font => $config->{menufont});
     my $filemenu = $mb -> Menu;
+    my $attachmentmenu = $mb -> Menu;
+    $mw -> Advertise ('attachmentmenu' => $attachmentmenu);
     my $editmenu = $mb -> Menu;
     my $messagemenu = $mb -> Menu;
     my $foldermenu = $mb -> Menu;
@@ -2180,9 +2194,9 @@ sub init_main_menu {
     $filemenu -> add ('command', -label => 'Empty Trash...', 
 		      -state => 'normal', -font => $config->{menufont},
 		  -command => sub{&deletetrashfolder ($mw)});
-    $filemenu -> add ('command', -label => 'Attachments...',
-		  -font => $config->{menufont},
-		  -command => sub{&attachment_dialog ($mw, 'main')});
+    $filemenu -> add ('cascade', -label => 'File Attachments',
+		      -font => $config->{menufont},
+		      -menu => $attachmentmenu);
     $filemenu -> add ('command', -label => 'Browse URL...',
 		  -state => 'normal', -font => $config->{menufont},
 		  -accelerator => 'Alt-E',
@@ -2321,8 +2335,9 @@ sub about {
 sub self_help {
     my $helpwindow;
     my $textwidget;
-    $help_text = content_as_str ($config->{helpfile});
-    $help_text = "Unable to open help file ".$config->{helpfile}."."
+    my $helpfile = &inc_path ('EC/ec.help');
+    $help_text = &content_as_str ($helpfile);
+    $help_text = "Unable to open help file $helpfile"
       if ! $help_text;
     $helpwindow = new MainWindow (-title => "EC Help");
     my $textframe = $helpwindow -> Frame(-container => 0,
@@ -2511,37 +2526,37 @@ unlink $LFILE;
 
 =head1 NAME
 
-  ec - E-mail reader and composer for Unix and Perl/Tk.
+  B<ec> - E-mail reader and composer for Unix and Perl/Tk.
 
 =head1 SYNOPSIS
 
-  ec [-f filename][-hkvdo]
+ec [C<-f> I<filename>] [C<-hkvdo>]
 
 =head2  Command Line Options
 
 =over 4
 
-=item -f filename
+=item C<-f> I<filename>
 
-Use <filename> instead of the default server authentication file.
+Use I<filename> instead of the default server authentication file.
 
-=item -h
+=item C<-h>
 
 Print help message and exit.
 
-=item -k
+=item C<-k>
 
 Don't delete messages from POP server.
 
-=item -v
+=item C<-v>
 
 Print verbose transcript of dialogs with servers.
 
-=item -d
+=item C<-d>
 
 Print debugging information on the terminal.
 
-=item -o
+=item C<-o>
 
 Offline - don't fetch mail from server.
 
@@ -2581,6 +2596,12 @@ Offline - don't fetch mail from server.
 
 =back
 
+=item MAINTENANCE
+
+=over 2
+
+=item   Folder Indexes
+
 =item PRINTING THE DOCUMENTATION IN DIFFERENT FORMATS
 
 =item LICENSE
@@ -2593,9 +2614,9 @@ Offline - don't fetch mail from server.
 
 =head1 DESCRIPTION
 
-EC is an Internet email reader and composer that can download
-incoming messages from one or more POP3 servers, and send mail
-directly to a SMTP server, or via sendmail or qmail if either is installed.
+EC is an Internet email reader and composer that can download incoming
+messages from one or more POP3 servers, and send mail directly to a
+SMTP server, or via sendmail or qmail if either is installed.
 
 EC provides options for configuring user defined mail folders and mail
 filtering by matching text patterns in incoming messages.  The program
@@ -2630,13 +2651,14 @@ in an xterm:
 
 should start up the program and display the main window with the
 Incoming mail folder.  If you receive an error message that the
-program cannot connect to the POP mail server, use the -v command
-line switch to produce a transcript of the dialog with the server:
+program cannot connect to the POP mail server, use the C<-v>
+command line switch to produce a transcript of the dialog with the
+server:
 
   # ./ec -v
 
 If EC pops up an error message, or refuses to start at all, or spews
-a bunch of Perl error messages all over the xterm, consult the INSTALL
+a bunch of Perl error messages all over the xterm, consult the I<README>
 file once again.  If you need assistance with the installation, please
 contact the author of the program.  The email address is given in the
 section: "CREDITS," below.
@@ -2650,11 +2672,11 @@ displayed in a separate window.
 
 The "File -> Browse URL" function pops up a dialog box with the URL
 under the text cursor.  If you click "OK," EC opens the browser that
-is named in the .eccconfig file, and loads the URL.  If the browser is
+is named in the F<.eccconfig> file, and loads the URL.  If the browser is
 already open or iconified, EC will use that browser window to view the
 URL. EC supports Netscape 4.5-4.7, Amaya 2.4, Opera 5.0, and Lynx in
 an xterm.  If you select Lynx, you will probably also need to set the
-xterm option in the .ecconfig file.
+xterm option in the F<.ecconfig> file.
 
 The "File -> Attachments" function opens a dialog window to
 save attachments to disk in the main window.  When you select
@@ -2663,7 +2685,7 @@ allows you to select files that will be attached to the outgoing
 message.  Refer also to the section, "MIME Attachments," below.
 
 There are a number of options for quoting original messages when
-composing a reply.  Refer to the .ecconfig file for information
+composing a reply.  Refer to the F<.ecconfig> file for information
 about these options.
 
 EC also uses the X clipboard, so you can cut and paste between windows
@@ -2689,7 +2711,7 @@ incoming message listing, or select "Message -> Compose New Message"
 from the menu, a window opens with a new message form with header
 lines for the addressee, the subject, and the name of the FCC (File
 Carbon Copy) file to save a copy of the message in.  If you have a
-~/.signature file (refer to the .ecconfig file to configure this
+F<~/.signature> file (refer to the F<.ecconfig> file to configure this
 option), EC will insert that at the end of the text.  You can enter
 the message below the separator line.
 
@@ -2698,7 +2720,7 @@ Clicking on the function bar's "Reply" button, or selecting
 with the address and subject of the original message filled in,
 and the message quoted in the text area.  There are several
 options that determine how EC fills in reply addresses and quotes
-original messages.  Again, refer to the .ecconfig file for
+original messages.  Again, refer to the F<.ecconfig> file for
 information about these options.
 
 Each message contains header information and body text, separated
@@ -2742,27 +2764,27 @@ headers, whether or not the message contains any attachments.
 
 =head2 Configuration Files
 
-The email client uses two configuration files, .ecconfig and
+The email client uses two configuration files, F<.ecconfig> and
 .servers. They reside in the ~/.ec directory by default, although you
 can change their names and locations by editing their path names in
-the "ec" and ~/.ec/EC/Config.pm files directly .  The files and
+the F<ec> and F<Config.pm> files directly .  The files and
 directory are not visible in normal directory listings.  Use the 
-"-a" option to ls to view them:
+C<-a> option to ls to view them:
 
   # ls -a ~/.ec
 
-The .ecconfig file contains user-settable defaults for the program's
-operating parameters using <option> <value> statements on each line.
-The function of each setting is explained in the .ecconfig file's
-comments.
+The F<.ecconfig> file contains user-settable defaults for the
+program's operating parameters using E<lt>optionE<gt> E<lt>valueE<gt>
+statements on each line.  The function of each setting is explained in
+the F<.ecconfig> file's comments.
 
-You can also edit the .ecconfig file by selecting 'Sample .ecconfig
+You can also edit the F<.ecconfig> file by selecting 'Sample .ecconfig
 File...' from the Help menu.  Pressing mouse button 3 (the right
 button on many systems), pops up a menu over the text area. where you
 can save your changes.  You must exit and restart EC for the changes
 to take effect.
 
-The .servers file contains the user login name, host name, port
+The F<.servers> file contains the user login name, host name, port
 and password for each POP3 and SMTP server.  EC allows incoming
 mail retrieval from multiple POP3 servers, but only allows one
 SMTP server for sending outgoing mail.  The format of each line
@@ -2770,7 +2792,7 @@ is:
 
   <server-name> <port> <user-login-name> <password>
 
-If there is a hyphen, '-', in the password field, then EC
+If there is a hyphen, 'C<->', in the password field, then EC
 will prompt you for the server's password when the program
 logs on to the server.
 
@@ -2786,7 +2808,7 @@ can be set with the command:
 You must be the file's owner, of course, in order to be able
 to reset the file's permissions.
 
-The '.servers' file is not editable from the Help menu.
+The F<.servers> file is not editable from the Help menu.
 
 =head2 Mail Directories and Folders
 
@@ -2795,7 +2817,7 @@ directories, and it can move messages between the directories with the
 Message -> Move To submenu.  By default, the mail folders are 
 subdirectories of the <maildir> setting.
 
-Assuming that a user's HOME directory is /home/bill, the directories
+Assuming that a user's HOME directory is C</home/bill>, the directories
 that correspond to mail folders would are:
 
   Option     Value      Path
@@ -2811,68 +2833,93 @@ own.
 EC makes the first letter of folder names uppercase, regardless of
 whether the directory name starts with a capital or small letter.
 
-All other directories can be configured in the .ecconfig file,
-using the 'folder' directive.  You must create the directories
-before EC can move messages into them.
+All other directories can be configured in the F<.ecconfig> file,
+using the C<folder> directive.  You must create the directories before
+EC can move messages into them.  If a directory doesn't exist, EC warns
+you and saves the message in the F<~/Mail/incoming> directory.
 
 =head2 Filters
 
 You can sort incoming mail by matching the text in an
 incoming message with a specified pattern.  Each "filter" line
-in the .ecconfig file is composed of a text pattern, a double
+in the F<.ecconfig> file is composed of a text pattern, a double
 equals sign, and the folder the mail is to be saved in.  The
 format of a filter line in the configuration file is:
 
   filter <text-pattern>==<folder-directory>
 
 Because the text pattern is used "raw" by Perl, you can use
-whatever metacharacters Perl recognizes (refer to the perlre
+whatever metacharacters Perl recognizes (refer to the C<perlre>
 man page).  Pattern matches are not case sensitive, and the
 folder-directory that the pattern matches must exist.
 
 Because of Perl's pattern matching, you must quote some characters
 that are common in email addresses which Perl recognizes as
 metacharacters, by preceding them with a backslash.  These characters
-include '@', '['. ']', '<', and '>'.  Refer to the example filter
-definitions in the .ecconfig file.
+include @, [, ], <, and >.  Refer to the example filter definitions in
+the F<.ecconfig> file.
 
 =head2 Mail Transport Agents
 
 In additon to an ISP's SMTP server, EC can send outgoing messages to
-sendmail or qmail, if either is installed.  In the .ecconfig file, the
-"usesendmail" and "useqmail" options determine which program is used.
+sendmail or qmail, if either is installed.  In the F<.ecconfig> file, the
+C<usesendmail> and C<useqmail> options determine which program is used.
 If the value of either is non-zero, then outgoing mail is routed to
 the MTA; otherwise, the default is to send mail directly to the ISP's
-SMTP server, using the information in the ~/.ec/.servers file.
+SMTP server, using the information in the F<~/.ec/.servers file>.
 
 In most sendmail configurations, either the local sendmail must be
 configured to relay messages, or have a "smart host" defined.  The
-comments in the .ecconfig file describe only a few possible settings.
-Refer to the sendmail documentation for further information.
+wcomments in the F<.ecconfig> file describe only a few possible
+settings.  Refer to the sendmail documentation for further
+information.
 
-If the "useqmail" option is set, make sure that you can execute
-the qmail-inject program, which is /var/qmail/bin/qmail-inject in
-qmail's default configuration.  EC still connects directly to
-an ISP's POP3 server, and uses the system UNIX mailbox, usually
-/var/spool/mail/<user>, for incoming messages.
+If the "useqmail" option is set, make sure that you can execute the
+qmail-inject program, which is /var/qmail/bin/qmail-inject in qmail's
+default configuration.  EC still connects directly to an ISP's POP3
+server, and uses the system UNIX mailbox, usually
+F</var/spool/mail/E<lt>userE<gt>>, for incoming messages.
 
-The qmail-inject -f option is not implemented.  The format of the
+The qmail-inject C<-f> option is not implemented.  The format of the
 sender's return address can be set using environment variables.  Refer
 to the qmail-inject manual page for information.
 
 =head2 Editing the Library Path Names in the Source File
 
-If you would like to change the path names of library files,
-use a text editor to edit the values of $iconpath, $cfgfilename,
-$serverfilename, and $base64enc at the beginning of the main
-source file, "ec," and ~/.ec/EC/Config.pm.
+If you would like to change the path names of library files, use a
+text editor to edit the values of I<$iconpath>, I<$cfgfilename>,
+I<$serverfilename>, and I<$base64enc> at the beginning of the library
+modules they appear in.
 
-The expand_path function expands leading tildes ('~') in file and
-path names to the value of the $HOME environment variable,
-following the convention of the UNIX Bourne shell.  Directory
-separators are forward slashes ('/'), so compatibility with
-non-UNIX file systems depends on the Perl environment to
-perform the path name translation.
+The C<expand_path> function expands leading tildes ('~') in file and
+path names to the value of the $HOME environment variable, following
+the convention of the UNIX Bourne shell.  Directory separators are
+forward slashes ('/'), so compatibility with non-UNIX file systems
+depends on the Perl environment to perform the path name translation.
+
+=head1 Maintenance
+
+=head2 Folder Indexes
+
+Although EC attempts to maintain an accurate index of read and unread
+messages in each folder, it is possible, if you upgrade to a later 
+version, or backup and then delete messages manually, that the folder
+indexes will not match the actual contents of the folder.  
+
+In this case, you must delete the file named F<.index> in each of the 
+folders.  For example, to delete the indexes in the Incoming and
+Trash folders, use these commands:
+
+C<
+  # rm Mail/incoming/.index
+  # rm Mail/trash/.index
+>
+
+If EC does not find the F<.index> file it will, as when you
+first ran the program, pop up a warning that it is creating a 
+new F<.index> file.  The messages themselves are not affected,
+but you need to select them again to prevent the program
+from showing their status as I<u> for "unread."
 
 =head1 PRINTING THE DOCUMENTATION IN DIFFERENT FORMATS
 
@@ -2895,11 +2942,11 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  $Id: ec,v 1.14 2002/03/09 01:01:18 kiesling Exp $
+  $Id: ec,v 1.17 2002/03/15 03:11:50 kiesling Exp $
 
 =head1 CREDITS
 
-  Written by Robert Kiesling, rkiesling@mainmatter.com
+  Written by Robert Allan Kiesling, rkiesling@mainmatter.com
 
   Perl/Tk by Nick Ing-Simmons.
 
@@ -2916,6 +2963,6 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
   The encdec Base64 filter was written by Jörgen Hägg and posted
   to the comp.mail.mime Usenet News group.  Please refer to the
-  source file, .ec/encdec.c, for licensing information.
+  source file, F<encdec.c> for licensing information.
 
 =cut

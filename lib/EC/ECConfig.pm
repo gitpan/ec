@@ -1,4 +1,6 @@
-package EC::Config;
+package EC::ECConfig;
+
+$VERSION=0.10;
 
 # $cfgfilename = $ENV{'HOME'}.'/.ec/.ecconfig';
 
@@ -21,7 +23,7 @@ my $defaults =       # config file; see ~/.ec/.ecconfig for description
    qmailbox => "Mailbox",
    incomingdir => 'incoming',
    trashdir => 'trash',
-   helpfile => '.ec/ec.help',
+   helpfile => 'EC/ec.help',
    trashdays => 2,
    pollinterval => 600000,
    senderwidth => 40,
@@ -82,7 +84,8 @@ sub readconfig {
     }
   }
   if( ! $cfgfile[0] ) {
-    print "Could not open $cfgfilename: using defaults.\n";
+    print "Could not open $cfgfilename: using defaults.\n".
+	"Refer to the file README for installation instructions.\n";
     foreach (keys %{$defaults}) {
       $userconfig{$_} = $defaults -> {$_};
       print "config: $_ = ".$userconfig{$_}." from defaults\n" if $debug;
