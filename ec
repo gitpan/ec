@@ -1,5 +1,5 @@
 #!/usr/local/bin/perl 
-my $RCSRevKey = '$Revision: 1.6 $';
+my $RCSRevKey = '$Revision: 1.7 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
 
@@ -23,7 +23,7 @@ $cfgfilename = &expand_path('~/.ec/.ecconfig');
 $serverfilename = &expand_path('~/.ec/.servers');
 
 $headerid = 
-"X-Mailer: EC E-Mail Client Version $VERSION;
+"X-Mailer: EC E-Mail Client Version $VERSION";
 
 my $datesortorder;
 # Default directory for user's file opens and saves.
@@ -2852,7 +2852,7 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  $Id: ec,v 1.6 2001/12/30 00:09:48 kiesling Exp $
+  $Id: ec,v 1.7 2001/12/30 00:44:33 kiesling Exp $
 
 =head1 CREDITS
 
