@@ -1685,7 +1685,16 @@ sub sendmail_send_message {
     my ($msghdr, $msgtext) = split /$msgsep/, $message;
     my $mimehdrs = mime_headers_as_str ();
     my @addressees = addressees ($msghdr);
-    my $unfolded_addressees = join ",", @addressees;
+    my $unfolded_addressees = "";
+    foreach (@addressees) {
+	local $a;
+	$a = address_without_envelope ($_);
+	if (!length ($unfolded_addressees)) {
+	    $unfolded_addressees = "$a";
+	} else {
+	    $unfolded_addressees .= ", $a";
+	}
+    }
     if ($config->{sendmailsetfrom}) {
 	if ($^O =~ /Win/) {
 	    open MTA, "|$mtaname -f ".
@@ -1738,7 +1747,16 @@ sub exim_send_message {
     my ($msghdr, $msgtext) = split /$msgsep/, $message;
     my $mimehdrs = mime_headers_as_str ();
     my @addressees = addressees ($msghdr);
-    my $unfolded_addressees = join ",", @addressees;
+    my $unfolded_addressees = "";
+    foreach (@addressees) {
+	local $a;
+	$a = address_without_envelope ($_);
+	if (!length ($unfolded_addressees)) {
+	    $unfolded_addressees = "$a";
+	} else {
+	    $unfolded_addressees .= ", $a";
+	}
+    }
     if ($config->{eximsetfrom}) {
 	if ($^O =~ /Win/) {
 	    open MTA, "|$mtaname -f ".
@@ -1789,7 +1807,16 @@ sub qmail_send_message {
     my $message = $_[0];
     my ($msghdr, $msgtext) = split /$msgsep/, $message;
     my @addressees = addressees ($msghdr);
-    my $unfolded_addressees = join ",", @addressees;
+    my $unfolded_addressees = "";
+    foreach (@addressees) {
+	local $a;
+	$a = address_without_envelope ($_);
+	if (!length ($unfolded_addressees)) {
+	    $unfolded_addressees = "$a";
+	} else {
+	    $unfolded_addressees .= ", $a";
+	}
+    }
     my $mimehdrs = mime_headers_as_str ();
     if ($^O =~ /Win/) { 
 	open MTA, "|".$config->{qmailinjectpath}." ".
@@ -1882,6 +1909,14 @@ sub envelope_addr {
     my ($s1,$s2) = ($s =~ /(.*\s)*(.+\@.+)/ );
     $s2 =~ s/ |\t//g;
     return "<$s2>";
+}
+
+sub address_without_envelope {
+    my ($s) = @_;
+    $s =~ s/<|>|\"//g;
+    my ($s1,$s2) = ($s =~ /(.*\s)*(.+\@.+)/ );
+    $s2 =~ s/ |\t//g;
+    return $s2;
 }
 
 sub reply {
