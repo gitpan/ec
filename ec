@@ -1,6 +1,6 @@
 #!/usr/bin/perl 
 
-my $RCSRevKey = '$Revision: 1.25 $'; $RCSRevKey =~ /Revision: (.*?) /; $VERSION=$1;
+my $RCSRevKey = '$Revision: 1.26a $'; $RCSRevKey =~ /Revision: (.*?) /; $VERSION=$1;
 
 use Fcntl;
 use IO::Handle;
@@ -3210,7 +3210,7 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  $Id: ec,v 1.24 2002/07/24 11:10:24 kiesling Exp $
+  Version 1.26a
 
 =head1 CREDITS
 
