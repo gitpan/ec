@@ -43,8 +43,12 @@ sub mime_boundary {
 sub save_attachment {
     my ($msg, $attachmentfilename, $ofilename) = @_;
     my $boundary = &mime_boundary ($msg);
+    # RFC 2046 - attachment body separated from preceding boundary
+    # and attachment headers by two CRLFs - translated to Unix line
+    # endings here.  Boundary at the end of the attachment is preceded
+    # in practice by two newlines.
     my ($cstr) = ($msg =~ 
-      m"filename=\"$attachmentfilename\"\n\w*?\n(.*?)\n\n.*?$boundary"smi);
+      m"filename=\"$attachmentfilename\".*?\n\n(.*?)\n\n--$boundary"smi);
     open TMP, ">/tmp/ec-tmp-$$" or warn "Couldn't open temp file: $!\n";
     print TMP $cstr;
     close TMP;

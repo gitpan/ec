@@ -1,5 +1,5 @@
 package Tk::SimpleFileSelect;
-my $RCSRevKey = '$Revision: 0.63 $';
+my $RCSRevKey = '$Revision: 0.65 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=0.63;
 use vars qw($VERSION @EXPORT_OK);
@@ -66,6 +66,7 @@ sub Populate {
         '-accept'         => [ 'CALLBACK',undef,undef, undef ],
         -create           => [ 'PASSIVE', undef, undef, 0 ],
         -acceptlabel      => [ 'PASSIVE', undef, undef, 'Accept' ],
+	-initialtext      => [ 'PASSIVE', undef, undef, '' ],
         DEFAULT           => [ 'dir_list' ],
     );
 
@@ -74,7 +75,7 @@ sub Populate {
     my $l = $w -> Component( Label => 'entry_label',-text => 'File Name: ');
     $l -> grid( -column => 1, -row => 3, -padx => 5, -pady => 5 );
     my $e = $w -> Component(Entry => 'file_entry',
-		    -textvariable=>\$w->{Configure}{-selectedfile});
+		    -textvariable=>\$w->{Configure}{-initialtext});
     $e->grid(-column => 2, -columnspan => 1, -padx => 5, -pady => 5,
 	     -row => 3, -sticky => 'e,w' );
     $e->bind('<Return>' => [$w => 'Open', Ev(['getSelected'])]);
@@ -320,6 +321,10 @@ with the first letter of the label text.
 Display only files matching this pattern.  The default is
 '*' (all files).
 
+=item -initialtext
+
+The text to appear in the entry box when the widget is opened.
+
 =head1 DESCRIPTION
 
 Tk::SimpleFileSelect is a easy-to-use file selection widget based
@@ -346,7 +351,7 @@ None.
 
 =head1 VERSION INFORMATION
 
-  $Id: SimpleFileSelect.pm,v 0.63 2001/10/04 12:59:02 kiesling Exp $
+  $Id: SimpleFileSelect.pm,v 0.65 2002/03/24 21:34:56 kiesling Exp $
 
 =head1 COPYRIGHT INFO
 

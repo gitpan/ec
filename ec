@@ -1,5 +1,5 @@
 #!/usr/bin/perl 
-my $RCSRevKey = '$Revision: 1.17 $';
+my $RCSRevKey = '$Revision: 1.19 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
 
@@ -1942,7 +1942,8 @@ sub save_attachment_file {
     my $ofilename = &fileselect ($mw, $savefiledialog,
 				-directory => $ENV{HOME},
 				-acceptlabel => 'Save',
-				 -title => 'Save Attachment File');
+				 -title => 'Save Attachment File',
+				 -initialtext => $attachmentfilename );
     if ((&strexist ($ofilename)) and (-f $ofilename)) {
 	my $response = &show_warn_dialog ($mw, $warndialog, 
 			   -message => "File $ofilename exists.  Overwrite?");
@@ -2425,6 +2426,7 @@ sub fileselect {
     if (not defined $ref) {
 	$ref = $mw -> SimpleFileSelect (@_);
     }
+    $ref -> configure (@_) if $#_;
     return $ref -> Show (@_);
 }
 
@@ -2526,7 +2528,7 @@ unlink $LFILE;
 
 =head1 NAME
 
-  B<ec> - E-mail reader and composer for Unix and Perl/Tk.
+  ec - E-mail reader and composer for Unix and Perl/Tk.
 
 =head1 SYNOPSIS
 
@@ -2576,7 +2578,7 @@ Offline - don't fetch mail from server.
 
 =item   Entering Messages
 
-=item   MIME Attachments
+=item   File Attachments
 
 =back
 
@@ -2682,7 +2684,7 @@ The "File -> Attachments" function opens a dialog window to
 save attachments to disk in the main window.  When you select
 "File -> Attachments" from in the composer window, the dialog
 allows you to select files that will be attached to the outgoing
-message.  Refer also to the section, "MIME Attachments," below.
+message.  Refer also to the section, "File Attachments," below.
 
 There are a number of options for quoting original messages when
 composing a reply.  Refer to the F<.ecconfig> file for information
@@ -2744,20 +2746,31 @@ separated by commas.  EC will include the multiple addresses in the
 outgoing message's header or will process the message to route it to
 all recipients.
 
-=head2 MIME Attachments
+=head2 File Attachments
 
-You can attach Base64 binary encoded MIME attachments to outgoing messages
-by selecting the "File -> Attachments..." menu item in the compose
-window, then selecting the file or files to attach.  If you select
-"File -> Attachments" from the main window, EC will show you a list
-of file attachments for the current message, which you can then save
-in their original format.
+EC supports a subset of the Internet MIME specification which allows
+files to be sent as attachments to messages.
 
-When attachments are selected, EC also encloses the text portion
-of the message as a MIME "text/plain" section, and sets the header's
-Content-Type: field to "multipart/mixed."  All messages contain the
-required MIME-Version:, Content-Type:, and Content-Transfer-Encoding:
-headers, whether or not the message contains any attachments.
+To save a file attachment, select the file from the File -> Attachments
+menu.  Type the name of the file to save the attachment to in 
+the dialog box.
+
+To attach files to outgoing messages, open the Attachments window and
+select the "File -> Attachments..." menu item in the Compose window.
+The "Attach..." button pops up a dialog box to select the file.  The
+file(s) you select are listed at the top of the Attachment window.
+You can remove files from the list of attachments by selecting the
+file and clicking on the "Remove" button.  When you close the window,
+by pressing the "Close" button, the list of files will be stored and
+the files will then be attached to the outgoing message when you press
+the "Send" button in the Compose window.
+
+When a message contains file attachments, EC also encloses the text of
+the message as a MIME "text/plain" section, and sets the message
+header's Content-Type: field to "multipart/mixed."  All messages
+contain the required MIME-Version:, Content-Type:, and
+Content-Transfer-Encoding: headers, whether or not the message
+contains any attachments.
 
 
 =head1 CONFIGURATION
@@ -2818,7 +2831,7 @@ Message -> Move To submenu.  By default, the mail folders are
 subdirectories of the <maildir> setting.
 
 Assuming that a user's HOME directory is C</home/bill>, the directories
-that correspond to mail folders would are:
+that correspond to mail folders are:
 
   Option     Value      Path
   ------     -----      ----
@@ -2942,7 +2955,7 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  $Id: ec,v 1.17 2002/03/15 03:11:50 kiesling Exp $
+  $Id: ec,v 1.19 2002/03/24 21:57:30 kiesling Exp $
 
 =head1 CREDITS
 

@@ -143,17 +143,64 @@ TROUBLESHOOTING
    Refer to the documentation for the shell (man bash, man csh, man ksh,
    etc.),  or almost any book about Unix.
 
-2. Setting the Location of the Perl Interpreter
 
-  If you try to run ec and get an error message like this:
+2. Finding the Perl Interpreter
+
+   Solaris 8
+
+   The standard configuration of Solaris 8 uses Version 5.005 of Perl 
+   and installs the interpreter in /usr/perl5/bin.  The installation 
+   also makes a symlink, /usr/bin/perl.  However, ec still gets installed 
+   in /usr/perl5/bin, which is not listed in the default $PATH.  If you 
+   get an error message like this:
+
+     bash: ec: command not found
+
+   You must:
+
+     1. Make a symlink to ec in /usr/bin (you must have administrator 
+        privileges to do this):
+
+        # ln -s /usr/perl5/bin/ec /usr/bin/ec
+
+     2. Or, add /usr/perl5/bin to your $PATH variable.  How to do
+        that depends on the shell and the desktop environment.  The 
+        command itself is:
+
+        $ PATH="/usr/perl5/bin:"$PATH ; export $PATH
+
+     3. If neither of the above are possible, type the full
+        pathname of ec:
+
+        $ /usr/perl5/bin/ec
+
+   Other OS's
+
+   On other systems, if you try to run ec and get an error message like 
+   this:
 
     bash: ec: No such file or directory
 
-  Then you need to edit the first line of the ec program file to 
-  the path to the system's perl interpreter.  Usually this is 
-  /usr/bin/perl (the default in the distributed program), or 
-  /usr/local/bin/perl.  If neither of these work, try using the 
-  output of the command: "which perl".
+   Then you need to edit the first line of the ec program file to 
+   the path to the system's perl interpreter.  Usually this is 
+   /usr/bin/perl (the default in the distributed program), or 
+   /usr/local/bin/perl.  If neither of these work, try using the 
+   output of the command: "which perl".
+
+3. Diagnosing Server Problems
+
+   Use the -v command line option to print a transcript of
+   the dialog with the email servers:
+
+     $ ec -v &
+
+   If the output scrolls off the screen, you can also redirect
+   the transcript to a file:
+
+     $ ec -v >ec.transcript &
+
+   The transcript should provide enough information to help 
+   pinpoint configuration or authentication errors.
 
 
 If the program doesn't work for some reason that isn't covered in the
