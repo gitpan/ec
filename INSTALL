@@ -8,6 +8,15 @@ modules in the directory ~/.ec/EC/.  If you edit the path
 names in the main program file, you will also need to edit
 them in the library modules, especially ~/.ec/EC/Config.pm.
 
+
+
+CONTENTS
+
+  SYSTEM REQUIREMENTS
+  INSTALLING AND CONFIGURING
+  PRINTING THE DOCUMENTATION
+  TROUBLESHOOTING
+
 SYSTEM REQUIREMENTS
 
 You will need, in addition to Perl:
@@ -48,6 +57,7 @@ INSTALLING AND CONFIGURING
     mkdir Mail/incoming
     mkdir Mail/trash
 
+
 PRINTING THE DOCUMENTATION
 
 It is possible produce this documentation in various formats
@@ -62,7 +72,32 @@ using Perl's POD formatting utilities:
 Refer to your system's manual pages for instructions of how
 to use these utilities.
 
-That's it!  If EC doesn't work for some reason, please let the 
-author know.  Please send bug reports, suggestions, and other
-feedback to rkiesling@mainmatter.com.
+
+TROUBLESHOOTING
+
+1. Setting the Location of the Perl Interpreter
+
+  If you try to execute ec and recieve an error message like 
+  this:
+
+    bash: ./ec: No such file or directory
+
+  Then you need to edit the first line of the file to give
+  the path to the perl interpreter on your system.  Usually
+  this is /usr/local/bin/perl (the default in the distributed 
+  program), or /usr/bin/perl.  If neither of these work, try
+  using the output of the command: "which perl".
+
+1. Configuring for Solaris Systems
+
+  The ec program as distributed is configured for Linux systems.
+  You'll need to edit the .ec/.ecconfig file, especially the
+  setting of mailspooldir, and possibly the sendmail and qmail
+  related settings.  If you have problems with configuration,
+  please contact the author at the email address below.
+
+
+If the program doesn't work for some reason that isn't covered in the
+TROUBLESHOOTING section, please let the author know.  Send bug
+reports, suggestions, and other feedback to rkiesling@mainmatter.com.
 
