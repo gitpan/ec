@@ -1,8 +1,8 @@
 package EC::ECConfig;
 
-$VERSION=0.10;
+use EC::Utilities;
 
-# $cfgfilename = $ENV{'HOME'}.'/.ec/.ecconfig';
+$VERSION=0.11;
 
                      # Default option settings when config file not found
 my $defaults =       # config file; see ~/.ec/.ecconfig for description
@@ -109,39 +109,6 @@ sub readconfig {
   $headerfont = $userconfig{'headerfont'};
   $menufont = $userconfig{'menufont'};
   return \%userconfig;
-}
-
-# prepend $HOME directory to path name in place of ~ or ~/
-sub expand_path {
-  my ($s) = @_;
-  if( $s =~ /^\~/ ) {
-    $s =~ s/~//;
-    $s = $ENV{'HOME'}."/$s";
-  }
-  $s =~ s/\/\//\//g;
-  return $s;
-}
-
-sub verify_path {
-  my ($path) = @_;
-  if ((not -d $path) and (not -f $path)) {
-    die "Verify_path(): Path $path not found: $!\n";
-  }
-}
-
-sub content {
-  my ($file) = @_;
-  my ($l, @contents);
-  eval {
-    open FILE, $file or
-      die "Couldn't open $file: ".$!."\n";
-    while (defined ($l=<FILE>)) {
-      chomp $l;
-      push @contents, ($l);
-    }
-    close FILE;
-  };
-  return @contents;
 }
 
 1;

@@ -25,7 +25,7 @@ sub attachment_filenames {
     my $boundary = &mime_boundary ($msg);
     my @msglines = split /\n/, $msg;
     foreach my $l (@msglines) {
-	if ($l =~ /filename\=/) {
+	if ($l =~ /filename\=/si) {
 	    ($name) = ($l =~ /filename\=\"(.*?)\"/si);
 	    push @filenames, ($name);
 	}
@@ -48,11 +48,26 @@ sub save_attachment {
     # endings here.  Boundary at the end of the attachment is preceded
     # in practice by two newlines.
     my ($cstr) = ($msg =~ 
-      m"filename=\"$attachmentfilename\".*?\n\n(.*?)\n\n--$boundary"smi);
+      m"filename=\"$attachmentfilename\".*?\n\n(.*?)\n+--$boundary"smi);
     open TMP, ">/tmp/ec-tmp-$$" or warn "Couldn't open temp file: $!\n";
     print TMP $cstr;
     close TMP;
-    `$base64enc -d -b </tmp/ec-tmp-$$ >$ofilename`;
+    `$base64enc -d -b </tmp/ec-tmp-$$ >$ofilename 2>/tmp/ec-error-$$`;
+    open ERROR, "/tmp/ec-error-$$" or warn
+	"Couldn't open /tmp/ec-error-$$: $!\n";
+    if (scalar (grep (/base64/, <ERROR>)) != 0) {
+	unlink "$ofilename";
+	open TMP, "/tmp/ec-tmp-$$" or
+	    warn "Couldn't open /tmp/ec-tmp-$$ for copying: $!\n";
+	open OFILE, ">$ofilename" or 
+	    warn "Couldn't open $ofilename for direct write: $!\n";
+	my $line;
+	while (defined ($line = <TMP>)) { print OFILE $line }
+	close TMP;
+	close OFILE;
+	close ERROR;
+    }
+    unlink "/tmp/ec-error-$$";
     unlink "/tmp/ec-tmp-$$";
 }
 
@@ -81,7 +96,7 @@ sub text_attachment_header {
 sub format_attachment {
     my ($filepath) = @_;
     my (@formatted,$basename);
-    ($basename) = ($filepath =~ /.*\/(.*)/);
+    ($basename) = ($filepath =~ /.*\/(.*)/si);
     push @formatted, ('--'.$outgoing_mime_boundary,
 		  "Content-Type: application/octet-stream; name=\"$basename\"",
 		  "Content-Transfer-Encoding: base64",

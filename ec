@@ -1,9 +1,20 @@
 #!/usr/bin/perl 
-my $RCSRevKey = '$Revision: 1.19 $';
+my $RCSRevKey = '$Revision: 1.23 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
 
-BEGIN{ unshift @INC, $ENV{'HOME'}.'/.ec' }
+#
+# To do:
+# 1. Make sure all attachment regex's are case insensitive.
+# 2. Add option to not display attatchment body in message window.
+# 3. Add view to message window so redisplay centers on view, not
+#    insertion point.
+# 4. Add displayed message global so that if there's no selection
+#    in the list window the message operations still work.
+# 5. Add warning dialogs when .signature and browser aren't
+#    found.
+# 6. Don't add fence when there's no .signature.
+#
 
 use Fcntl;
 use IO::Handle;
@@ -14,7 +25,7 @@ use EC::ECConfig;
 use Tk::Listbox;
 use Tk::ECWarning;
 use EC::Attachments;
-
+use EC::Utilities;
 #
 #  Path names for library files.  Edit these for your configuration.
 #
@@ -45,6 +56,7 @@ my $mw = &init_main_widgets;
 my $savefiledialog = undef;  # File save dialogs
 my $insertfiledialog = undef;  
 my $warndialog = undef;
+my $attachfiledialog = undef;
 
 ##
 ##  The following code is for Socket stuff.
@@ -355,7 +367,6 @@ sub openserver {
     return $errcode;
 }
 
-
 # This unfolds To: Cc: and Bcc:'s on one line only.
 sub addressees {
     my ($msg) = @_;
@@ -551,7 +562,6 @@ sub retrieve {
     close MBOX;
 }
 
-
 sub get_user_info {
     my (%sites);
     if (-f $serverfilename) {
@@ -597,7 +607,7 @@ sub get_user_info {
     } else {
 	&show_warn_dialog ($mw, $warndialog,
 		   -message => "Server file ".$serverfilename ." not found.\n" .
-			   "Please read the file INSTALL.\n");
+			   "Please read the file README.\n");
 	exit (255);
     }
     if ($config->{debug}) {
@@ -847,8 +857,8 @@ sub listmailfolder {
 	$l -> delete (0, 'end');
 	$sortedmessages = undef;
 	opendir MDIR, $folder or 
-	    &show_warn_dialog ($mw, $warndialog,
-			       -message => "Could not open folder $folder: $!\n");
+         &show_warn_dialog ($mw, $warndialog,
+	   -message => "Could not open folder $folder: $!\n");
 	@msgfiles = grep /[^\.]|[^\.][^\.]/, readdir MDIR;
 	closedir MDIR;
 	foreach $msgid (@msgfiles) {
@@ -923,17 +933,6 @@ sub listmailfolder {
         }
     }; # eval
     &defaultcursor ($mw);
-}
-
-sub strfill {
-    my ($s, $length) = @_;
-
-    if ( length ($s) > $length) {
-	$s = substr $s, 0, $length;
-    } elsif ( length ($s) < $length ) {
-	$s .= ' ' x ($length - length ($s));
-    }
-    return $s;
 }
 
 sub movemail {
@@ -1679,24 +1678,6 @@ sub write_fcc {
     }
 }
 
-# prepend $HOME directory to path name in place of ~
-sub expand_path {
-    my ($s) = @_;
-    if( $s =~ /^\~/ ) {
-	$s =~ s/~//;
-	$s = $ENV{'HOME'}."/$s";
-    }
-    $s =~ s/\/\//\//g;
-    return $s;
-}
-
-sub inc_path {
-    my ($filename) = @_;
-    foreach (@INC) {
-	return "$_/$filename" if -f "$_/$filename";
-    }
-}
-
 # provide at least an envelope address.
 sub rfc822_addr {
     my ($s) = @_;
@@ -1785,6 +1766,7 @@ sub compose {
     my $ct = $cw -> Subwidget ('text');
     my $c = $cw -> Subwidget ('button_bar');
     my $fcc_file = $config->{fccfile};
+    $#attachments = -1;
     $ct -> insert ('1.0', "$tofield \n", 'header');
     $ct -> insert ('2.0', "$subjfield \n", 'header');
     $ct -> insert ('3.0', "$fccfield $fcc_file\n", 'header') if $fcc_file;
@@ -1797,33 +1779,42 @@ sub compose {
 }
 
 sub composemenu {
-    my ($mw) = @_;
-    my $cm = $mw -> Menu(-type => 'menubar', -font => $config->{menufont});
+    my ($w) = @_;
+    my $cm = $w -> Menu(-type => 'menubar', -font => $config->{menufont});
     my $composefilemenu = $cm -> Menu;
     my $composeeditmenu = $cm -> Menu;
+    my $composeattachmentsmenu = $cm -> Menu;
+    my $composeattachmentfilesmenu = $cm -> Menu;
+    $w -> Advertise ('composeattachmentfilesmenu' => 
+		     $composeattachmentfilesmenu);
     my $optionalfieldsmenu = $cm -> Menu;
     $cm -> add('cascade', -label => 'File', -menu => $composefilemenu);
     $cm -> add('cascade', -label => 'Edit', -menu => $composeeditmenu);
+    $cm -> add('cascade', -label => 'Attachments', 
+	       -menu => $composeattachmentsmenu);
     $composefilemenu -> add('command', -label => 'Insert File...',
 			    -accelerator => 'Alt-I',
 			    -font => $config->{menufont},
-			    -command => sub {&InsertFileDialog($mw)});
+			    -command => sub {&InsertFileDialog($w)});
     $composefilemenu -> add ('separator');
     $composefilemenu -> add ('command', -label => 'Minimize', 
 			    -state => 'normal',
 			    -font => $config->{menufont}, 
 			    -accelerator => 'Alt-Z',
-			    -command => sub{$mw->toplevel->iconify});
-    $composefilemenu -> add ('command', -label => 'Attachments...',
-			     -font => $config->{menufont},
-			     -command => 
-			     sub{ &attachment_dialog ($mw)});
+			    -command => sub{$w->toplevel->iconify});
     $composefilemenu -> add ('command', -label => 'Close',
 			     -accelerator => 'Alt-W',
 			     -font => $config->{menufont},
-			     -command => sub { $mw -> WmDeleteWindow});
-    &EditMenuItems ($composeeditmenu, ($mw -> Subwidget ('text')));
-    my $optionalfields = &OptionalFields ($mw -> Subwidget ('text'));
+			     -command => sub { $w -> WmDeleteWindow});
+    &EditMenuItems ($composeeditmenu, ($w -> Subwidget ('text')));
+    $composeattachmentsmenu -> add ('command', -label => 'Attach File...',
+	    -font => $config -> {menufont},
+	    -command => sub {&compose_attachment_dialog($w)});
+    $composeattachmentsmenu -> add ('cascade', 
+		    -label => 'Remove Attachment...',
+		    -font => $config -> {menufont},
+		    -menu => $composeattachmentfilesmenu);
+    my $optionalfields = &OptionalFields ($w -> Subwidget ('text'));
     $optionalfieldsmenu -> AddItems (@$optionalfields);
     $optionalfieldsmenu -> configure (-font => $config->{menufont});
     $composeeditmenu -> add ('separator');
@@ -1909,15 +1900,37 @@ sub bind_sendmsg {
     return 1;
 }
 
-sub attachment_dialog {
-    my ($mw) = @_;
-    require EC::Attachment_Dialog;
-    my ($messagefile, $filelabel);
+sub compose_attachment_dialog {
+    my ($w) = @_;
+    my ($ofilename);
+    $ofilename = &fileselect ($w, $attachfiledialog,
+			      -directory => $ENV{HOME});
+    push @attachments, ($ofilename);
+    my $attachmentfilemenu = $w -> Subwidget ('composeattachmentfilesmenu');
+    $attachmentfilemenu -> delete (1, 'end');
+    foreach (@attachments) {
+	$attachmentfilemenu -> add ('command', -label => $_,
+			    -font => $config -> {menufont},
+			    -command => [\&compose_remove_attachment, $w,$_]);
+    }
+}
+
+sub compose_remove_attachment {
+    my ($w,$attachmentname) = @_;
+    my @newattachments;
+    foreach (@attachments) {
+	push @newattachments, ($_) if ($_ !~ m"$attachmentname");
+    }
     $#attachments = -1;
-    my $a = $mw -> Attachment_Dialog (-font => $config->{menufont},
-				    -folder => $currentfolder,
-				      -title => 'File Attachments');
-    @attachments = $a -> Show;
+    foreach (@newattachments) {print "$_\n"}
+    push @attachments, @newattachments;
+    my $attachmentfilemenu = $w -> Subwidget ('composeattachmentfilesmenu');
+    $attachmentfilemenu -> delete (1, 'end');
+    foreach (@attachments) {
+	$attachmentfilemenu -> add ('command', -label => $_,
+			    -font => $config -> {menufont},
+			    -command => [\&compose_remove_attachment, $w,$_]);
+    }
 }
 
 sub menu_list_attachments {
@@ -1954,33 +1967,16 @@ sub save_attachment_file {
     }
 }
 
-sub content {
-    my ($msg) = @_;
-    my ($l, @contents);
-    eval {
-	open MESSAGE, $msg or
-	    die "Couldn't open $msg: ".$!."\n";
-	while (defined ($l=<MESSAGE>)) {
-	    chomp $l;
-	    push @contents, ($l);
-	}
-	close MESSAGE;
-    };
-    return @contents;
+if ($tkminorversionno >= 020) {
+    @busyopts = (qw/-recurse 1/);
 }
-
-sub content_as_str { return join "\n", &content (@_) }
-
-sub strexist { return defined $_[0] and length $_[0] }
-
 sub watchcursor {
     my ($mw) = @_;
-    $mw -> Busy( -recurse => '1' );
+    $mw -> Busy (@busyopts);
 }
-
 sub defaultcursor {
     my ($mw) = @_;
-    $mw -> Unbusy (-recurse => '1');
+    $mw -> Unbusy (@busyopts);
 }
 
 sub browse_url {
@@ -2071,7 +2067,7 @@ $config->{offline} = 1 if $opt_o;
 $LFILE = "/tmp/popm.$UID";
 
 #Perl 5 - have to set PATH to known value - security feature
-$ENV{'PATH'}="/bin:/usr/bin:/usr/local/bin:/usr/lib:/usr/sbin";
+# $ENV{'PATH'}="/bin:/usr/bin:/usr/local/bin:/usr/lib:/usr/sbin";
 
 # Get list of sites from configuration file: See above.
 $lsites = &get_user_info;
@@ -2491,9 +2487,11 @@ $systemmbox = ($config->{mailspooldir})."/$username";
 $mw -> configure( -title => $currentfolder );
 $defaultuserdir = $config->{maildir};
 
-if (-f $iconpath) {
-    my $icon = $mw -> toplevel -> Pixmap(-file => $iconpath);
-    $mw -> toplevel -> iconimage($icon);
+if ($tkminorversionno >= 20) {
+    if (-f $iconpath) {
+	my $icon = $mw -> toplevel -> Pixmap(-file => $iconpath);
+	$mw -> toplevel -> iconimage($icon);
+    }
 }
 
 # Event updates from window manager;
@@ -2507,7 +2505,7 @@ sub wm_update {
 sub timer_update {
     my ($mw) = @_;
     return if not defined $mw;
-    Tk::Event::DoOneEvent(255);
+    if ($tkminorversionno >= 20) { Tk::Event::DoOneEvent(255) }
     $mw -> update;
 }
 
@@ -2649,7 +2647,7 @@ If you installed EC and its supporting files correctly (as well as
 Perl and the Perl/Tk library modules), typing at the shell prompt
 in an xterm:
 
-   # ./ec
+   # ec
 
 should start up the program and display the main window with the
 Incoming mail folder.  If you receive an error message that the
@@ -2657,7 +2655,7 @@ program cannot connect to the POP mail server, use the C<-v>
 command line switch to produce a transcript of the dialog with the
 server:
 
-  # ./ec -v
+  # ec -v
 
 If EC pops up an error message, or refuses to start at all, or spews
 a bunch of Perl error messages all over the xterm, consult the I<README>
@@ -2680,11 +2678,11 @@ URL. EC supports Netscape 4.5-4.7, Amaya 2.4, Opera 5.0, and Lynx in
 an xterm.  If you select Lynx, you will probably also need to set the
 xterm option in the F<.ecconfig> file.
 
-The "File -> Attachments" function opens a dialog window to
-save attachments to disk in the main window.  When you select
-"File -> Attachments" from in the composer window, the dialog
-allows you to select files that will be attached to the outgoing
-message.  Refer also to the section, "File Attachments," below.
+The "File -> Attachments" function opens a dialog window to save
+attachments to disk in the main window.  When you select "File ->
+Attachments" in the composer window, the dialog allows you to select
+files that will be attached to the outgoing message.  Refer also to
+the section, "File Attachments," below.
 
 There are a number of options for quoting original messages when
 composing a reply.  Refer to the F<.ecconfig> file for information
@@ -2756,14 +2754,12 @@ menu.  Type the name of the file to save the attachment to in
 the dialog box.
 
 To attach files to outgoing messages, open the Attachments window and
-select the "File -> Attachments..." menu item in the Compose window.
-The "Attach..." button pops up a dialog box to select the file.  The
-file(s) you select are listed at the top of the Attachment window.
-You can remove files from the list of attachments by selecting the
-file and clicking on the "Remove" button.  When you close the window,
-by pressing the "Close" button, the list of files will be stored and
-the files will then be attached to the outgoing message when you press
-the "Send" button in the Compose window.
+select the "Attachments -> Attach File..." menu item in the Compose
+window.  Then select file from the dialog box's list or by entering
+its name.  The file(s) you select are listed on the "Attachments ->
+Remove Attachment" menu, where you can remove attachments by selecting
+them.  The list of files are attached to the outgoing message when you
+click on the "Send" button in the Compose window.
 
 When a message contains file attachments, EC also encloses the text of
 the message as a MIME "text/plain" section, and sets the message
@@ -2777,12 +2773,12 @@ contains any attachments.
 
 =head2 Configuration Files
 
-The email client uses two configuration files, F<.ecconfig> and
-.servers. They reside in the ~/.ec directory by default, although you
-can change their names and locations by editing their path names in
-the F<ec> and F<Config.pm> files directly .  The files and
-directory are not visible in normal directory listings.  Use the 
-C<-a> option to ls to view them:
+The program uses two configuration files, F<.ecconfig> and
+F<.servers>. They reside in the ~/.ec directory by default, although
+you can change their names and locations by editing their path names
+in the F<ec> and F<Config.pm> files directly .  The files and
+directory are not visible in normal directory listings.  Use the C<-a>
+option to ls to view them:
 
   # ls -a ~/.ec
 
@@ -2797,7 +2793,7 @@ button on many systems), pops up a menu over the text area. where you
 can save your changes.  You must exit and restart EC for the changes
 to take effect.
 
-The F<.servers> file contains the user login name, host name, port
+The F<.servers> file contains the user login name, host name, port,
 and password for each POP3 and SMTP server.  EC allows incoming
 mail retrieval from multiple POP3 servers, but only allows one
 SMTP server for sending outgoing mail.  The format of each line
@@ -2805,9 +2801,8 @@ is:
 
   <server-name> <port> <user-login-name> <password>
 
-If there is a hyphen, 'C<->', in the password field, then EC
-will prompt you for the server's password when the program
-logs on to the server.
+If there is a hyphen, 'C<->', in the password field, then EC prompts
+you for the server's password when the program logs on to the server.
 
 In standard configurations, POP3 servers use port 110, and the
 single SMTP server uses port 25.
@@ -2825,10 +2820,10 @@ The F<.servers> file is not editable from the Help menu.
 
 =head2 Mail Directories and Folders
 
-EC can save messages in any number of user-configurable "folders," or
-directories, and it can move messages between the directories with the
-Message -> Move To submenu.  By default, the mail folders are 
-subdirectories of the <maildir> setting.
+EC saves messages in user-configurable "folders," or directories, and
+it can move messages between the directories via the "Message -> Move
+To" submenu.  The mail folders are subdirectories of the <maildir>
+setting, which is ~/Mail by default.
 
 Assuming that a user's HOME directory is C</home/bill>, the directories
 that correspond to mail folders are:
@@ -2847,7 +2842,7 @@ EC makes the first letter of folder names uppercase, regardless of
 whether the directory name starts with a capital or small letter.
 
 All other directories can be configured in the F<.ecconfig> file,
-using the C<folder> directive.  You must create the directories before
+using the "folder" directive.  You must create the directories before
 EC can move messages into them.  If a directory doesn't exist, EC warns
 you and saves the message in the F<~/Mail/incoming> directory.
 
@@ -2883,14 +2878,14 @@ SMTP server, using the information in the F<~/.ec/.servers file>.
 
 In most sendmail configurations, either the local sendmail must be
 configured to relay messages, or have a "smart host" defined.  The
-wcomments in the F<.ecconfig> file describe only a few possible
+comments in the F<.ecconfig> file describe only a few of the possible
 settings.  Refer to the sendmail documentation for further
 information.
 
 If the "useqmail" option is set, make sure that you can execute the
-qmail-inject program, which is /var/qmail/bin/qmail-inject in qmail's
-default configuration.  EC still connects directly to an ISP's POP3
-server, and uses the system UNIX mailbox, usually
+F<qmail-inject program>, which is F</var/qmail/bin/qmail-inject> in
+qmail's default configuration.  EC still connects directly to an ISP's
+POP3 server, and uses the system UNIX mailbox, usually
 F</var/spool/mail/E<lt>userE<gt>>, for incoming messages.
 
 The qmail-inject C<-f> option is not implemented.  The format of the
@@ -2928,11 +2923,11 @@ C<
   # rm Mail/trash/.index
 >
 
-If EC does not find the F<.index> file it will, as when you
-first ran the program, pop up a warning that it is creating a 
-new F<.index> file.  The messages themselves are not affected,
-but you need to select them again to prevent the program
-from showing their status as I<u> for "unread."
+If EC does not find the F<.index> file it will, as when you first ran
+the program, it displays a message that it is creating a new F<.index>
+file.  The messages themselves are not affected, but you need to
+select them again to prevent the program from showing their status as
+I<u> for "unread."
 
 =head1 PRINTING THE DOCUMENTATION IN DIFFERENT FORMATS
 
@@ -2955,7 +2950,7 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  $Id: ec,v 1.19 2002/03/24 21:57:30 kiesling Exp $
+  $Id: ec,v 1.23 2002/04/14 13:39:27 kiesling Exp $
 
 =head1 CREDITS
 

@@ -26,10 +26,11 @@ CONTENTS
 
 SYSTEM REQUIREMENTS
 
-You will need, in addition to Perl:
-
-1. A recent version of Perl/Tk.
-2. Local or Internet connections to a POP3 and SMTP server.
+1. Perl 5.004 or later version.  If the version of Perl that is 
+   installed on the system is earlier than 5.004, you probably 
+   can't run much of anything else, either.
+2. Perl/Tk version 800.022 or later. 
+3. Local or Internet connections to a POP3 and SMTP server.
 
 
 INSTALLING AND CONFIGURING
@@ -51,7 +52,7 @@ INSTALLING AND CONFIGURING
 
       # make install
 
-2.  Install the configuration files for each user.  They reside in
+3.  Install the configuration files for each user.  They reside in
     a subdirectory of each user's $HOME directory.  The default 
     configuration files are located in the configs/ subdirectory: 
     configs/dot-ecconfig and configs/dot-servers.  
@@ -78,14 +79,14 @@ INSTALLING AND CONFIGURING
       # cp configs/dot-servers ~/.ec/.servers
       # chmod 0600 ~/.ec/.servers
 
-3.  Edit the .ec/.ecconfig file with the program options of 
+4.  Edit the .ec/.ecconfig file with the program options of 
     your choice.  You can read and edit the file with a text editor
     or from the Help -> Sample .ecconfig File... menu option.  
     The comments in the .eccfile explain the function of each option
     and the possible values for them.  The help file, the Help -> Help
     menu option, provides additional information.
 
-4.  On Solaris systems, make sure that the value of "mailspooldir"
+5.  On Solaris systems, make sure that the value of "mailspooldir"
     in the ~/.ec/.ecconfig file is set to the system's mail spool
     directory, the /var/mail directory in standard configurations.
 
@@ -93,7 +94,7 @@ INSTALLING AND CONFIGURING
     the ec program to '2' to communicate directly with SMTP and 
     POP3 servers.  
 
-5.  EC requires, at the very least, a top-level mail subdirectory, 
+6.  EC requires, at the very least, a top-level mail subdirectory, 
     and two sub-sub-directories, one for incoming mail and another 
     for deleted messages.  Create the directories defined in the
     configuration file with the following commands:
@@ -163,9 +164,13 @@ TROUBLESHOOTING
 
         # ln -s /usr/perl5/bin/ec /usr/bin/ec
 
+        You also need to make a symlink for the attachment decoder:
+
+        # ln -s /usr/perl5/bin/encdec /usr/bin/encdec
+
      2. Or, add /usr/perl5/bin to your $PATH variable.  How to do
         that depends on the shell and the desktop environment.  The 
-        command itself is:
+        command itself (for Bourne-type shells) is:
 
         $ PATH="/usr/perl5/bin:"$PATH ; export $PATH
 
