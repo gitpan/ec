@@ -1,5 +1,5 @@
 #!/usr/local/bin/perl 
-my $RCSRevKey = '$Revision: 1.1 $';
+my $RCSRevKey = '$Revision: 1.6 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
 
@@ -10,7 +10,7 @@ use Tk;
 use Tk::TextUndo;
 use Tk::SimpleFileSelect;
 use EC::Config;
-use EC::MessageList;
+use Tk::Listbox;
 
 #
 #  Path names for library files.  Edit these for your configuration.
@@ -23,7 +23,7 @@ $cfgfilename = &expand_path('~/.ec/.ecconfig');
 $serverfilename = &expand_path('~/.ec/.servers');
 
 $headerid = 
-"X-Mailer: EC $VERSION, http://www.mainmatter.com/perltk/";
+"X-Mailer: EC E-Mail Client Version $VERSION;
 
 my $datesortorder;
 # Default directory for user's file opens and saves.
@@ -90,10 +90,7 @@ my $base64enc = &expand_path ('~/.ec/encdec');
 ($localuser,$dummy,$UID,@dummy) = getpwuid ($<); undef @dummy;
 $localuser =~ /(.*)/;
 
-open LOGNAME, 'echo $LOGNAME|' or die "Can't get \$LOGNAME: $!\n";
-$username=<LOGNAME>;
-close LOGNAME;
-chomp $username;
+$username = $ENV{LOGNAME};
 
 sub sock_close_on_err {
     local ($msg) = @_;
@@ -644,6 +641,24 @@ sub visit_sites {
     $c -> dchars ($servermsg, '0', 'end');
 }
 	
+sub format_sender {
+    my ($s) = @_;
+    # Only for standard listbox
+#  if( ( length $s ) < ($config->{senderlen}) ) {
+#    $s .=  substr $padding, 0, ($config->{senderlen}) - length $s;
+#    return $s;
+#  }
+#  if( ( length $s ) > ($config->{senderlen}) ) {
+#    return substr $s, 0, ($config->{senderlen});
+#  }
+    return $s;
+}
+
+sub format_subject {
+    my ($s) = @_;
+    return $s;
+}
+
 sub format_possible_rfcdate {
     my ($s) = @_;
     my ($wday, $day, $mon, $year, $hour, $min, $sec, $tz, $r);
@@ -860,18 +875,30 @@ sub listmailfolder {
 	    @subjline = grep /^Subject: /i, @msgtext;
 	    @fromline = grep /^From: /i, @msgtext;
 	    @dateline = grep /^Date: /i, @msgtext;
-	    foreach my $s ($fromline[0], $subjline[0], $dateline[0]) {
-		if (strexist ($s)) {
-		    chomp $s;
-		    $s =~ s/.*: //;
-		} else {
-		    $s = '';
-		}
+	    if (strexist ($fromline[0])) {
+		chomp $fromline[0];
+		$fromline[0] =~ s/From:\s*//;
+	    } else {
+		$fromline[0] = ' ';
+	    }
+	    if (strexist ($subjline[0])) {
+		chomp $subjline[0];
+		$subjline[0] =~ s/Subject:\s*//i;
+	    } else {
+		$subjline[0] = ' ';
+	    }
+	    if (strexist ($dateline[0])) {
+		$dateline[0] =~ s/Date:\s*//i;
+		$dateline[0] =~ s/\n//;
+	    } else {
+		$dateline[0] = ' ';
 	    }
 	    push @msgfilelist, 
 	      (&format_possible_rfcdate($dateline[0]).
-	       ' ~~~'. $fromline[0] . '~~~' . $subjline[0] .
-	       "~~~$msgid" );
+	       ' ~~~'.
+	       &format_sender($fromline[0]).' ~~~'.
+	       &format_subject($subjline[0]) . 
+	       " ~~~$msgid" );
 	}
 	if ($config->{sortfield} =~ /1/) { # sort by date
 	    @sortedmessages = sort {
@@ -911,12 +938,25 @@ sub listmailfolder {
 	    if ($config->{weekdayindate} =~ /0/) {
 		$listingdate =~ s/^\w\w\w\, //;
 	    }
-	    $l -> insert('end',[$listingstatus,
-			      $listingdate," $listingfrom",
-			      " $listingsubject"]);
+	    my $lline = &strfill ($listingstatus, 2);
+	    $lline .= ' ' . &strfill ($listingdate, $config -> {datewidth});
+	    $lline .= '  ' . &strfill ($listingfrom, $config -> {senderwidth});
+	    $lline .= '  ' . &strfill ($listingsubject, 45);
+	    $l -> insert ('end', $lline);
 	}
     }; # eval
     &defaultcursor ($mw);
+}
+
+sub strfill {
+    my ($s, $length) = @_;
+
+    if ( length ($s) > $length) {
+	$s = substr $s, 0, $length;
+    } elsif ( length ($s) < $length ) {
+	$s .= ' ' x ($length - length ($s));
+    }
+    return $s;
 }
 
 sub movemail {
@@ -989,7 +1029,7 @@ sub displaymessage {
     my ($mw, $msgdir) = @_;
     my $l = $mw -> Subwidget ('messagelist');
     my $t = $mw -> Subwidget ('text');
-    my ($ml, $line, $ofrom, $hdr, @hdrlines, $body, $msg, $msgfile);
+    my ($ml, $line, $ofrom, $hdr, @hdrlines, $body, $msg, $msgfile, $listrow);
     $mw -> update;
     # this prevents the program from carping if there's no selection.
     my $nrow = ($l->curselection)[0];
@@ -997,16 +1037,20 @@ sub displaymessage {
     &watchcursor ($mw);
     eval {
 	$t -> delete ('1.0', 'end');
-	$msgfile = $sortedmessages[($l->curselection)[0]];
+	$msgfile = $sortedmessages[$nrow];
 	$msgfile =~ s/.*\~\~\~//;
 	$msg = content_as_str ("$msgdir/$msgfile");
 	&addmsgtoindex ($msgfile,$msgdir);
 	&updatemsgcount ($mw, $msgdir);
-	my @listrow = $l -> getRow ($nrow);
-	$listrow[0] = '';
+
+	# Remove the unread status entry from the list entry.
+	$listrow = $l -> get ($nrow);
 	$l -> delete ($nrow);
-	$l -> insert ($nrow, [@listrow]);
+	$listrow =~ s/^u /  /;
+	$l -> insert ($nrow, $listrow);
 	$l -> selectionSet ($nrow);
+	$l -> see ($nrow);
+
 	($hdr, $body) = split /\n\n/, $msg, 2;
 	if( $config->{headerview} eq 'full' ) {
 	    @hdrlines = split /\n/, $hdr;
@@ -1116,61 +1160,72 @@ sub updatemsgcount {
     $c -> insert ($msgcounter, 1, $countertext);
 }
 
+sub selectallmessages {
+    my ($mw) = @_;
+    my $l = $mw -> Subwidget ('messagelist');
+    $l -> selectionSet(0, $l -> index('end') - 1);
+    &displaymessage ($mw, $currentfolder);
+}
+
 sub movemesg {
     my ($mw, $dir) = @_;
-    my ($il, $selindex, $omsgfile,$nmsgfile);
+    my ($il, $sel, @selections, $omsgfile,$nmsgfile);
     my $l = $mw -> Subwidget ('messagelist');
     my $t = $mw -> Subwidget ('text');
     my $c = $mw -> Subwidget ('button_bar');
     my $msgcounter = $mw -> Subwidget ('msgcounter');
     eval {
-	$selindex = ($l->curselection)[0];
-	print "$selindex\n" if $config->{debug};
-	return if $selindex < 0;
-	my $listing = $sortedmessages[$selindex];
-	my ($msgdate, $msgfrom, $msgsub, $omsgfile) =
-	    split /\~\~\~/, $listing;
-	$omsgfile =~ s/.*\~\~\~//;
-	$nmsgfile = $omsgfile;
+	@selections = $l->curselection;
+	if ($config->{debug}) { foreach (@selections) { print "$_\n" }}
+	return if $selections[0] eq '';
+	foreach $sel (@selections) {
+	    my $listing = $sortedmessages[$sel];
+	    my ($msgdate, $msgfrom, $msgsub, $omsgfile) =
+		split /\~{3,}/, $listing;
+	    $omsgfile =~ s/.*\~{3,}//;
+	    $nmsgfile = $omsgfile;
 
-	open INMSG, "<$currentfolder/$omsgfile"
-	    or die "Couldn't open message file: $!\n";
+#	    print "$listing\n";
+#	    print "$msgdate, $msgfrom, $msgsub, $omsgfile\n";
+
+	    open INMSG, "<$currentfolder/$omsgfile"
+		or die "Couldn't open message file: $!\n";
 
         #    This is a bit ugly - better renaming for duplicate filenames?
-	while (-e "$dir/$nmsgfile") {
-	    $nmsgfile .= '1';
+	    while (-e "$dir/$nmsgfile") {
+		$nmsgfile .= '1';
+	    }
+
+	    open OUTMSG, "+>>".$dir."/$nmsgfile"
+		or die "Couldn't open message file: $!\n";
+
+	    while (defined ($il = <INMSG>)) {
+		print OUTMSG $il;
+	    }
+
+	    close INMSG;
+	    close OUTMSG;
+
+	    &deletemsgfromindex ($omsgfile, $currentfolder);
+	    &addmsgtoindex ($nmsgfile, $dir);
+
+	    unlink ("$currentfolder/$omsgfile");
+
+	    $l -> delete ($sel);
+
 	}
-
-	open OUTMSG, "+>>".$dir."/$nmsgfile"
-	    or die "Couldn't open message file: $!\n";
-
-	while (defined ($il = <INMSG>)) {
-	    print OUTMSG $il;
+	$t -> delete ('1.0', 'end');
+	&listmailfolder ($l, $currentfolder);
+	if (($selections[0]) >= $l -> index('end')) {
+	    $l -> selectionSet ($l -> index('end') - 1);
+	    $l -> see ($l -> index('end') - 1);
+	} else {
+	    $l -> selectionSet ($selections[0]);
+	    $l -> see ($selections[0]);
 	}
-
-	close INMSG;
-	close OUTMSG;
-
-	&deletemsgfromindex ($omsgfile, $currentfolder);
-	&addmsgtoindex ($nmsgfile, $dir);
 	&updatemsgcount ($mw, $currentfolder);
 	&updatemsgcount ($mw, $dir);
-
-	unlink ("$currentfolder/$omsgfile");
-
-	$t -> delete ('1.0', 'end');
-	$l -> delete (($l->curselection)[0]);
-
-	if ($selindex >= ($l -> index ('end'))) {
-	    $selindex--;
-	}
-	&listmailfolder ($l, $currentfolder);
-	$l -> selectionSet ($selindex, $selindex);
-	if ($selindex >= 0) {
-	    &displaymessage ($mw, $currentfolder);
-	    $l -> see ($selindex + 1);
-	}
-	&updatemsgcount ($mw, $currentfolder);
+	&displaymessage ($mw, $currentfolder);
     }; # eval
 }
 
@@ -1196,8 +1251,9 @@ sub emptytrash {
 	    print "unlink $tf.\n" if $config->{debug};
 	}
     }
-    &updatemgcount ($mw, $config->{trashdir});
-    &listmailfolder ($mw -> Subwidget ('messagelist', $currentfolder));
+    &updatemsgcount ($mw, $config->{trashdir});
+    &listmailfolder ($mw -> Subwidget ('messagelist', $currentfolder))
+	if $currentfolder eq $config -> {trashdir};
 }
 
 sub interval_poll {
@@ -1210,29 +1266,26 @@ sub interval_poll {
 
 sub incoming_poll {
     my ($mw, $lsites) = @_;
-    my ($hdr, $selindex, $insert);
+    my ($hdr, $insert);
     my $l = $mw -> Subwidget ('messagelist');
     my $t = $mw -> Subwidget ('text');
     &watchcursor ($mw);
     eval {
-	# remember selection and insertion point if there is one
-	$selindex = ($l->curselection)[0] if defined $l;
+	# remember selections and insertion point if they exist
+	my @selindexes = $l->curselection if defined $l;
 	$insert = $t -> index ('insert') if defined $t;
 	&visit_sites ($mw, $lsites);
 	&movemail;
-	$l -> delete (0, $l -> size);
 	&listmailfolder ($l, $currentfolder);
-	&updatemsgcount ($mw,$_) foreach (@{$config->{folder}});
-	&emptytrash;
-	if ($selindex ne '' and defined $selindex) {
-	    $l -> selectionSet ($selindex, $selindex) if ($selindex ne '');
-	    $l -> see ($selindex);
-	    &displaymessage ($mw, $currentfolder);
-	}
+	&updatemsgcount ($mw, $_) foreach (@{$config->{folder}});
+	$l -> selectionSet ($_)	foreach (@selindexes);
+	$l -> see ($selindexes[0]);
+	&displaymessage ($mw, $currentfolder);
 	if (defined $insert and defined $t) {
 	    $t -> markSet ('insert', $insert);
 	    $t -> see ('insert');
 	}
+	&emptytrash;
     };
     &defaultcursor ($mw);
 }
@@ -1261,7 +1314,9 @@ sub sendmsg {
 	@msgtextlist = split /\n/, $msgtext;
 	print $msghdr if $config->{debug};
 	@hdrlist = split /\n/, $msghdr;
-	($fcc_file) = ($msghdr =~ /Fcc: (.*?)$/smi);
+	foreach $line ( @hdrlist ) { 
+	    ($fcc_file) = ($line =~ s/Fcc //i) if ($line =~ /Fcc:/i);
+	}
 	if ($config->{usesendmail}) {
 	    ($msghdr, $msgtext) = 
 		split /$msgsep/, $ct -> get ('1.0', 'end');
@@ -1753,6 +1808,7 @@ sub standard_keybindings {
     $w->bind ('<Alt-i>',sub{&InsertFileDialog ($w)});
     $w->bind ('<Alt-w>',sub{$w -> WmDeleteWindow});
     $w->bind ('<Alt-z>',sub{$w -> toplevel -> iconify});
+    $w->bind ('<Alt-a>',sub{&selectallmessages ($w)});
     return $w;
 }
 
@@ -1861,11 +1917,11 @@ sub browse_url {
     my ($mw) = @_;
     require Tk::DialogBox;
     require Tk::IO;
-    my $url = '';
-    my ($line, $col, $cline, $bname, $lockfile, $bcommand, $bpid);
-    ($line,$col) = split /\./, ($mw->Subwidget('text')->index('insert'));
-    $cline = $mw->Subwidget ('text')->get ( "$line\.0", "$line\.end");
-    ($url) = ($cline =~ /(http\S*)/i);
+    my $index = $mw -> Subwidget('text') -> index ('insert');
+    my ($bname, $lockfile, $bcommand, $bpid);
+    my ($line,$col) = split /\./, ($index);
+    my $cline = $mw->Subwidget ('text')->get ( "$line\.0", "$line\.end");
+    my ($url) = ($cline =~ /(http\S*)/i);
     $url = '' if (not defined $url);
     my $dialog = $mw -> DialogBox (-title => 'Open URL',
 				   -buttons => ['Ok', 'Cancel'],
@@ -1942,6 +1998,9 @@ use warnings;
 
 $LFILE = "/tmp/popm.$UID";
 
+#Perl 5 - have to set PATH to known value - security feature
+$ENV{'PATH'}="/bin:/usr/bin:/usr/local/bin:/usr/lib:/usr/sbin";
+
 # Get list of sites from configuration file: See above.
 $lsites = &get_user_info;
 
@@ -1950,42 +2009,50 @@ $lsites = &get_user_info;
 #
 sub init_main_widgets {
     my $mw = new MainWindow( -title => "Email Client");
-    my $l = $mw -> Scrolled( 'MessageList',
-	 -height => 7,
-	 -selectmode => 'single',
-	 -bd => 2, -relief => 'sunken',
-	 -width => 80,
-	     -scrollbars => 'se',
-	     -columns => [[-text => 'St',
-			   -font => $config->{textfont},
-			   -sortable => 0,
-			   -background => 'white',
-			   -textwidth => 2 ],
-			  [-text => '  Date:',
-			   -anchor => 'w',
-			   -font => $config->{textfont},
-			   -sortable => 0,
-			   -background => 'white',
-			   -textwidth => $config->{datelen}],
-			  [-text => '  From:',
-			   -anchor => 'w',
-			   -sortable => 0,
-			   -font => $config->{textfont},
-			   -background => 'white',
-			   -textwidth => $config->{senderlen}],
-			  [ -text => '  Subject:',
-			    -anchor => 'w',
-			    -sortable => 0,
-			    -font => $config->{textfont},
-			    -background => 'white',
-			    -textwidth => 80 ]]);
+#    my $l = $mw -> Scrolled( 'MessageList',
+#         -height => 7,
+#         -bd => 2, -relief => 'sunken',
+#         -selectmode => 'extended',
+#         -width => 80,
+#         -scrollbars => 'se',
+#         -columns => [[-text => 'St',
+#			   -font => $config->{textfont},
+#			   -sortable => 0,
+#			   -background => 'white',
+#			   -textwidth => 2 ],
+#			  [-text => '  Date:',
+#			   -anchor => 'w',
+#			   -font => $config->{textfont},
+#			   -sortable => 0,
+#			   -background => 'white',
+#			   -textwidth => $config->{datelen}],
+#			  [-text => '  From:',
+#			   -anchor => 'w',
+#			   -sortable => 0,
+#			   -font => $config->{textfont},
+#			   -background => 'white',
+#			   -textwidth => $config->{senderlen}],
+#			  [ -text => '  Subject:',
+#			    -anchor => 'w',
+#			    -sortable => 0,
+#			    -font => $config->{textfont},
+#			    -background => 'white',
+#			    -textwidth => 80 ]]);
+    my $l = $mw -> Scrolled ('Listbox',
+			     -height => 7,
+			     -bd => 2, 
+			     -relief => 'sunken',
+			     -selectmode => 'extended',
+			     -width => 80,
+			     -font => $config->{textfont},
+			     -background => 'white',
+			     -scrollbars => 'se');
     $l -> Subwidget ('yscrollbar') -> configure (-width=>10);
     $l -> Subwidget ('xscrollbar') -> configure (-width=>10);
     $mw -> Advertise ('messagelist' => $l);
     $l -> {'ml_sort_descending'} = $config->{sortdescending};
     $datesortorder = $config->{sortdescending};
-    $l -> bindColumns ('<Button-1>', sub{&sort_column});
-    $l -> bindRows('<Button-1>', sub{ displaymessage ($mw, $currentfolder)});
+    $l -> bind ('<Button-1>', sub { displaymessage ($mw, $currentfolder) });
 
     my $c = &init_button_bar ($mw);
     $mw -> Advertise ('button_bar' => $c);
@@ -2113,6 +2180,10 @@ sub init_main_menu {
     $messagemenu -> add ('command', -label => 'Delete', -state => 'normal',
 		  -font => $config->{menufont}, -accelerator => 'Alt-D',
 		  -command => sub{movemesg ($mw, $config->{trashdir})});
+    $messagemenu -> add ('command', -label => 'Select All Messages',
+			 -state => 'normal', -font => $config->{menufont},
+			 -accelerator => 'Alt-A',
+			 -command => sub{selectallmessages($mw)});
     $messagemenu -> add ('separator');
     $messagemenu -> add ('command', -label => 'Next Message', 
 		 -state => 'normal', -font => $config->{menufont}, 
@@ -2265,7 +2336,7 @@ sub sample {
     $textwidget -> Subwidget ('yscrollbar') -> configure (-width=>10);
     $textwidget -> Subwidget ('xscrollbar') -> configure (-width=>10);
     $textwidget -> insert ('end', $help_text);
-    $buttonframe -> Button (-text => 'Close', -font => $config->{menufont},
+    $buttonframe -> Button (-text => 'Dismiss', -font => $config->{menufont},
 			  -command => sub{$helpwindow -> DESTROY}) ->
 			    pack;
 }
@@ -2331,6 +2402,8 @@ sub SaveFileAsDialog {
     my $msg = $text -> get ('1.0', 'end');
     my $name = &fileselect ($mw, $savefiledialog,
 			    -acceptlabel => 'Save');
+### Use of uninitialized value in string ne at ./xec line 2420.
+
     $l -> selectionSet ($selindex, $selindex ) if $selindex ne '';
     if (defined($name) and length($name)) {
 	chomp $name;
@@ -2779,7 +2852,7 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  $Id: ec,v 1.1 2001/10/25 11:20:21 kiesling Exp $
+  $Id: ec,v 1.6 2001/12/30 00:09:48 kiesling Exp $
 
 =head1 CREDITS
 

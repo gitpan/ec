@@ -38,8 +38,10 @@ sub Populate {
   require Tk::Toplevel;
   require Tk::Label;
   require Tk::Listbox;
+
   $w -> SUPER::Populate($args);
   $w -> withdraw;
+  $#attachments = -1;
 
   if (defined $args->{-font}) {
       $w -> {Configure}{-font} = $args->{-font};
@@ -71,12 +73,12 @@ sub Populate {
 			       -font => $w->{Configure}{-font},
 			       -default => 'active');
   $bdelete->grid( -column => 1, -row => 3, -padx => 5, -pady => 5 );
-  my $battach = $w->Component (Button => 'browsebutton',
+  my $bbrowse = $w->Component (Button => 'browsebutton',
 			       -text => 'Browse...', -width => 8,
 			  -command => sub{$w->Browse_File},
                           -font => $w->{Configure}{-font},
 		          -default => 'active' );
-  $battach->grid( -column => 2, -row => 3, -padx => 5, -pady => 5 );
+  $bbrowse->grid( -column => 2, -row => 3, -padx => 5, -pady => 5 );
   my $bsave = $w->Component (Button => 'savebutton',
 			     -text => 'Save', -width => 8,
 			     -command => sub{$w->Save_Attachment},
@@ -246,7 +248,7 @@ sub boundary {
   my (@txt) = @_;
   my @boundary = grep /boundary=/i, @txt;
   return '' if not defined $boundary[0];
-  $boundary[0] =~ s/.*boundary=\"(.*)\".*/\1/i;
+  $boundary[0] =~ s/.*boundary=\"(.*)\".*/$1/i;
   return $boundary[0];
 }
 
@@ -257,7 +259,7 @@ sub list_attachments {
     @contents = content($messagefile);
     @filenames = grep /filename=/i, @contents;
     foreach $line (@filenames) {
-      $line =~ s/.*\"(.*)\"/\1/;
+      $line =~ s/.*\"(.*)\"/$1/;
       $lb -> insert ('end', $line);
     }
   };

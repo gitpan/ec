@@ -16,6 +16,7 @@ sub Populate {
   require Tk::Button;
   require Tk::Toplevel;
   require Tk::Label;
+  require Tk::Listbox;
   $w -> SUPER::Populate($args);
   my $l = $w -> Component( Label => 'tile',
 	   -text => "\nEC Email Client\n Version ".$args->{-version}."\n",

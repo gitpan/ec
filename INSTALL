@@ -43,9 +43,13 @@ INSTALLING AND CONFIGURING
 3.  Edit the ~/.ec/.ecconfig file with the program options of 
     your choice.  
 
-4.  On Solaris systems, you may need to change the value of 
-    $SOCK_STREAM line 39 to '2' to communicate directly with
-    SMTP and POP3 servers.  
+4.  On Solaris systems, make sure that the value of "mailspooldir"
+    in the ~/.ec/.ecconfig file is set to the system's mail spool
+    directory, the /var/mail directory in standard configurations.
+
+    You may also need to change the value of $SOCK_STREAM line 46 of
+    the ec program to '2' to communicate directly with SMTP and 
+    POP3 servers.  
 
 5.  EC requires, at the very least, a top-level mail subdirectory, 
     and two sub-sub-directories, one for incoming mail and another 
