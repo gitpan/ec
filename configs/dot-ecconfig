@@ -33,7 +33,7 @@ menufont *-helvetica-medium-r-*-*-12-*
 # your e-mail address after the '@'.  User name for each server
 # is set in the .servers file.  maildomain defaults to 'localhost'.
 #
-maildomain mainmatter.com
+maildomain your-isp.net
 #
 # Port numbers for POP3 and SMTP servers must be set in the 
 # .servers file.  EC uses the SMTP port number here to determine 
@@ -57,7 +57,7 @@ usesendmail 0
 # domain name (the one in the 'maildomain' option, above) in the 
 # /etc/mail/sendmail.cf file; e.g.,
 #
-#   Djmainmatter.com
+#   Djyour-isp.net
 #
 # Also, you'll probably need to set the "smarthost" option 
 # in /etc/mail/sendmail.cf if your local sendmail is not configured 

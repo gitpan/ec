@@ -31,7 +31,7 @@ if ($] =~ /5.004/) {
 	    'VERSION_FROM' => 'ec', 
 	    'EXE_FILES'  => ['ec', 'encdec'],
 	    'PREREQ_PM'  => { 'Tk' => undef },
-	    'AUTHOR'        => 'Robert Allan Kiesling <rkiesling@mainmatter.com>',
+	    'AUTHOR'        => 'Robert Allan Kiesling <rkiesling@earthlink.net>',
 	);
 }
 

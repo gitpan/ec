@@ -359,6 +359,6 @@ in the Perl/Tk library. It is freely distributable and modifiable
 under the same conditions as Perl. Please refer to the file
 "Artistic" in the distribution archive.
 
-Please submit any bugs to the author, rkiesling@mainmatter.com.
+Please submit any bugs to the author, rkiesling@earthlink.net.
 
 =cut

@@ -23,7 +23,7 @@ sub Populate {
 			 -font => $args->{-font} );
   $l -> grid( -column => 1, -row => 1, -padx => 5, -pady => 5 );
   my $l2 = $w -> Component( Label => 'copyright',
-   -text => "Copyright \xa9 2001, rkiesling\@mainmatter.com\n\n" .
+   -text => "Copyright \xa9 2001, rkiesling\@earthlink.net\n\n" .
    "Please refer to the file \"Artistic\" \n" .
    "for license terms\n",
    -font => $args->{-font});

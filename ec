@@ -1,20 +1,7 @@
 #!/usr/bin/perl 
-my $RCSRevKey = '$Revision: 1.23 $';
+my $RCSRevKey = '$Revision: 1.24 $';
 $RCSRevKey =~ /Revision: (.*?) /;
 $VERSION=$1;
-
-#
-# To do:
-# 1. Make sure all attachment regex's are case insensitive.
-# 2. Add option to not display attatchment body in message window.
-# 3. Add view to message window so redisplay centers on view, not
-#    insertion point.
-# 4. Add displayed message global so that if there's no selection
-#    in the list window the message operations still work.
-# 5. Add warning dialogs when .signature and browser aren't
-#    found.
-# 6. Don't add fence when there's no .signature.
-#
 
 use Fcntl;
 use IO::Handle;
@@ -2055,7 +2042,7 @@ if ($opt_h || !$opt_errs) {
     print "  -k                 Keep mail on server (don't delete).\n";
     print "  -v                 Print verbose messages.\n";
     print "  -d                 Print debugging information.\n";
-    die "\nPlease report bugs to rkiesling\@mainmatter.com.\n";
+    die "\nPlease report bugs to rkiesling\@earthlink.net.\n";
 }
 
 if ($opt_f) { $serverfilename = $opt_c if (-f $opt_c) }
@@ -2521,6 +2508,8 @@ if (! $config->{offline}) {
 		     $config->{incomingdir});
 }
 
+$SIG{KILL} = sub { exit 1 };
+
 MainLoop;
 unlink $LFILE;
 
@@ -2643,32 +2632,29 @@ can read, sort, save, or delete incoming messages, and a composer
 window where you can enter new messages and reply to messages in the
 main window.
 
-If you installed EC and its supporting files correctly (as well as
-Perl and the Perl/Tk library modules), typing at the shell prompt
-in an xterm:
+If EC and its supporting files correctly (as well as Perl and the
+Perl/Tk library modules), typing at the shell prompt in an xterm:
 
    # ec
 
 should start up the program and display the main window with the
 Incoming mail folder.  If you receive an error message that the
 program cannot connect to the POP mail server, use the C<-v>
-command line switch to produce a transcript of the dialog with the
+command line option to produce a transcript of the dialog with the
 server:
 
   # ec -v
 
-If EC pops up an error message, or refuses to start at all, or spews
-a bunch of Perl error messages all over the xterm, consult the I<README>
-file once again.  If you need assistance with the installation, please
-contact the author of the program.  The email address is given in the
-section: "CREDITS," below.
+If EC pops up an error message, or refuses to start at all, or prints
+a bunch of Perl error messages, consult the I<README> file once again.
+If you need assistance with the installation, please contact the
+author of the program.  The email address is given in the section:
+"CREDITS," below.
 
 The functions on the menu bar should be fairly self-explanatory.  You
 can view different mail folders by selecting them from the "Folder"
 menu, and move messages from one folder to another by selecting the
-destination folder from the "Message -> Move To" submenu.  If you
-have Motif installed, you can "tear off" the menus so they are
-displayed in a separate window.
+destination folder from the "Message -> Move To" submenu.  
 
 The "File -> Browse URL" function pops up a dialog box with the URL
 under the text cursor.  If you click "OK," EC opens the browser that
@@ -2716,7 +2702,7 @@ option), EC will insert that at the end of the text.  You can enter
 the message below the separator line.
 
 Clicking on the function bar's "Reply" button, or selecting
-"Message -> Reply" from the menu bar, will open a compose window
+"Message -> Reply" from the menu bar, opens a compose window
 with the address and subject of the original message filled in,
 and the message quoted in the text area.  There are several
 options that determine how EC fills in reply addresses and quotes
@@ -2749,17 +2735,17 @@ all recipients.
 EC supports a subset of the Internet MIME specification which allows
 files to be sent as attachments to messages.
 
-To save a file attachment, select the file from the File -> Attachments
-menu.  Type the name of the file to save the attachment to in 
-the dialog box.
+To save a file that is attached to an incoming message, select the
+file from the File -> Attachments menu.  Type the name of the file to
+save the attachment to in the dialog box.
 
-To attach files to outgoing messages, open the Attachments window and
-select the "Attachments -> Attach File..." menu item in the Compose
-window.  Then select file from the dialog box's list or by entering
-its name.  The file(s) you select are listed on the "Attachments ->
-Remove Attachment" menu, where you can remove attachments by selecting
-them.  The list of files are attached to the outgoing message when you
-click on the "Send" button in the Compose window.
+To attach files to outgoing messages, select the "Attachments ->
+Attach File..." menu item in the Compose window.  Then select the file
+from the dialog box's list or by entering its name.  The file(s) you
+select are listed on the "Attachments -> Remove Attachment" menu,
+where you can remove attachments by selecting them.  The files are
+attached to the outgoing message when you click on the "Send" button
+in the Compose window.
 
 When a message contains file attachments, EC also encloses the text of
 the message as a MIME "text/plain" section, and sets the message
@@ -2801,11 +2787,24 @@ is:
 
   <server-name> <port> <user-login-name> <password>
 
-If there is a hyphen, 'C<->', in the password field, then EC prompts
-you for the server's password when the program logs on to the server.
+If there is a hyphen, 'C<->', in the password field, EC prompts you
+for the server's password when the program logs on to the server.
 
 In standard configurations, POP3 servers use port 110, and the
 single SMTP server uses port 25.
+
+The format of the .servers file allows you to retrieve mail from
+more than one POP3 account, although you can only send mail to
+on SMTP server.  
+
+  mail.isp.net 110 info  password-for-info
+  mail.isp.net 110 sales password-for-sales
+  mail.isp.net 25  info  password-for-info
+
+If you need to use different addresses for outgoing messages, you
+can edit the From: or Reply-to: line of message header so that 
+the mail originates from the address you want, or replies get
+sent to the appropriate address.
 
 The .servers file must have only user read-write permissions
 (0600), otherwise the program complains.  The correct permissions
@@ -2821,8 +2820,8 @@ The F<.servers> file is not editable from the Help menu.
 =head2 Mail Directories and Folders
 
 EC saves messages in user-configurable "folders," or directories, and
-it can move messages between the directories via the "Message -> Move
-To" submenu.  The mail folders are subdirectories of the <maildir>
+can move messages between folders via the "Message -> Move To"
+submenu.  The mail folders are subdirectories of the <maildir>
 setting, which is ~/Mail by default.
 
 Assuming that a user's HOME directory is C</home/bill>, the directories
@@ -2924,7 +2923,7 @@ C<
 >
 
 If EC does not find the F<.index> file it will, as when you first ran
-the program, it displays a message that it is creating a new F<.index>
+the program, display a message that it is creating a new F<.index>
 file.  The messages themselves are not affected, but you need to
 select them again to prevent the program from showing their status as
 I<u> for "unread."
@@ -2950,11 +2949,11 @@ EC is licensed using the same terms as Perl. Please refer to the file
 
 =head1 VERSION INFO
 
-  $Id: ec,v 1.23 2002/04/14 13:39:27 kiesling Exp $
+  $Id: ec,v 1.24 2002/07/24 11:10:24 kiesling Exp $
 
 =head1 CREDITS
 
-  Written by Robert Allan Kiesling, rkiesling@mainmatter.com
+  Written by Robert Allan Kiesling, rkiesling@earthlink.net
 
   Perl/Tk by Nick Ing-Simmons.
 
