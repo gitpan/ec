@@ -12,9 +12,9 @@ use Tk::widgets qw(Button Frame Label Listbox);
 
 Construct Tk::Widget 'Attachment_Dialog';
 
-require EC::Config;
+require EC::ECConfig;
 my $cfgfilename = &expand_path('~/.ec/.ecconfig');
-my $config = &EC::Config::new ($cfgfilename);
+my $config = &EC::ECConfig::new ($cfgfilename);
 
 sub Select_Attachment {
     my ($cw,$selection) = @_;
